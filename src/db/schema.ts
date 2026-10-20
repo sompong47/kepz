@@ -1,0 +1,82 @@
+import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { relations } from "drizzle-orm";
+
+const id = () => text("id").primaryKey().$defaultFn(() => crypto.randomUUID());
+const createdAt = () => integer("created_at", { mode: "timestamp_ms" }).$defaultFn(() => new Date());
+
+export const users = sqliteTable("users", {
+  id: id(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  phone: text("phone"),
+  password: text("password").notNull(),
+  role: text("role", { enum: ["TENANT", "SELLER", "ADMIN"] }).notNull(),
+  createdAt: createdAt(),
+});
+
+export const shops = sqliteTable("shops", {
+  id: id(),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category", { enum: ["STORAGE", "PARKING", "STALL", "CAR", "BOAT"] }).notNull(),
+  location: text("location"),
+  phone: text("phone"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  ownerId: text("owner_id").notNull().references(() => users.id),
+  createdAt: createdAt(),
+});
+
+export const assets = sqliteTable(
+  "assets",
+  {
+    id: id(),
+    code: text("code").notNull(),
+    size: text("size"),
+    price: integer("price").notNull(),
+    period: text("period", { enum: ["DAY", "MONTH"] }).notNull().default("MONTH"),
+    note: text("note"),
+    x: integer("x"),
+    y: integer("y"),
+    w: integer("w"),
+    h: integer("h"),
+    shape: text("shape", { enum: ["RECT", "CIRCLE"] }).notNull().default("RECT"),
+    shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("assets_shop_code").on(t.shopId, t.code)],
+);
+
+export const leases = sqliteTable("leases", {
+  id: id(),
+  status: text("status", { enum: ["PENDING", "ACTIVE", "REJECTED", "ENDED"] }).notNull().default("PENDING"),
+  startDate: integer("start_date", { mode: "timestamp_ms" }).notNull(),
+  endDate: integer("end_date", { mode: "timestamp_ms" }).notNull(),
+  billing: text("billing", { enum: ["MONTH", "HALF_YEAR", "YEAR"] }).notNull().default("MONTH"),
+  assetId: text("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  tenantId: text("tenant_id").notNull().references(() => users.id),
+  createdAt: createdAt(),
+});
+
+export const payments = sqliteTable("payments", {
+  id: id(),
+  amount: integer("amount").notNull(),
+  dueDate: integer("due_date", { mode: "timestamp_ms" }).notNull(),
+  paidAt: integer("paid_at", { mode: "timestamp_ms" }),
+  leaseId: text("lease_id").notNull().references(() => leases.id, { onDelete: "cascade" }),
+});
+
+export const shopRelations = relations(shops, ({ one, many }) => ({
+  owner: one(users, { fields: [shops.ownerId], references: [users.id] }),
+  assets: many(assets),
+}));
+export const assetRelations = relations(assets, ({ one, many }) => ({
+  shop: one(shops, { fields: [assets.shopId], references: [shops.id] }),
+  leases: many(leases),
+}));
+export const leaseRelations = relations(leases, ({ one, many }) => ({
+  asset: one(assets, { fields: [leases.assetId], references: [assets.id] }),
+  tenant: one(users, { fields: [leases.tenantId], references: [users.id] }),
+  payments: many(payments),
+}));
+export const paymentRelations = relations(payments, ({ one }) => ({
+  lease: one(leases, { fields: [payments.leaseId], references: [leases.id] }),
+}));
