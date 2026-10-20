@@ -30,16 +30,6 @@ export function RegisterForm() {
   return (
     <form action={act} className="card space-y-4 max-w-md mx-auto">
       <h1 className="text-xl font-bold">สมัครสมาชิก</h1>
-      <div className="grid grid-cols-2 gap-2">
-        {[["TENANT", "ผู้เช่า", "ค้นหาและเช่าสิ่งต่าง ๆ"], ["SELLER", "ผู้ขาย", "เปิดร้านปล่อยเช่าของตัวเอง"]].map(([v, t, d], i) => (
-          <label key={v} className="cursor-pointer">
-            <input type="radio" name="role" value={v} defaultChecked={i === 0} className="peer sr-only" />
-            <div className="rounded-xl border border-line p-3 peer-checked:border-brand peer-checked:bg-brand/10">
-              <div className="font-semibold">{t}</div><div className="text-xs text-slate-400">{d}</div>
-            </div>
-          </label>
-        ))}
-      </div>
       <F label="ชื่อ"><input name="name" required className="input" /></F>
       <F label="อีเมล"><input name="email" type="email" required className="input" /></F>
       <F label="เบอร์โทร"><input name="phone" className="input" /></F>
@@ -77,7 +67,9 @@ export function AssetForm({ shopId, unit }: { shopId: string; unit: string }) {
       <h3 className="font-semibold">เพิ่ม{unit}</h3>
       <div className="grid grid-cols-2 gap-3">
         <F label="รหัส/ชื่อ"><input name="code" required placeholder="A01" className="input" /></F>
-        <F label="ขนาด/รายละเอียด"><input name="size" placeholder="XS, S, M, L…" className="input" /></F>
+        <F label="ป้ายขนาด"><input name="size" placeholder="XS, S, M, L…" className="input" /></F>
+        <F label="กว้าง (เมตร)"><input name="wm" type="number" min={1} step={0.5} placeholder="5" className="input" /></F>
+        <F label="ยาว (เมตร)"><input name="hm" type="number" min={1} step={0.5} placeholder="3.5" className="input" /></F>
         <F label="ราคา (บาท)"><input name="price" type="number" min={1} required className="input" /></F>
         <F label="คิดราคาต่อ">
           <select name="period" className="input"><option value="MONTH">เดือน</option><option value="DAY">วัน</option></select>

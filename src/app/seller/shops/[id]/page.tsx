@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { db, shops } from "@/db";
-import { requireRole } from "@/lib/auth";
+import { db, shops, floorsOf } from "@/db";
+import { requireUser } from "@/lib/auth";
 import { addAsset as _a, deleteAsset, decideLease, markPaid } from "@/lib/actions";
-import { CATEGORIES, PERIOD, BILLING, assetState, baht, fmtDate } from "@/lib/domain";
+import { CATEGORIES, PERIOD, BILLING, assetState, baht, defaultBox, dimText, fmtDate } from "@/lib/domain";
 import { AssetForm } from "@/components/Forms";
 import { StateBadge, Stat } from "@/components/ui";
 import FloorPlan from "@/components/FloorPlan";
@@ -14,12 +14,13 @@ void _a;
 
 export default async function ManageShop({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const u = await requireRole("SELLER", "ADMIN");
+  const u = await requireUser();
   const shop = await db.query.shops.findFirst({
     where: eq(shops.id, id),
-    with: { assets: { with: { leases: { with: { tenant: true, payments: true } } } } },
+    with: { features: true, assets: { with: { photos: true, leases: { with: { tenant: true, payments: true } } } } },
   });
   if (!shop || (u.role !== "ADMIN" && shop.ownerId !== u.id)) notFound();
+  const floors = await floorsOf(shop.id);
   const cat = CATEGORIES[shop.category];
   const assets = [...shop.assets].sort((a, b) => a.code.localeCompare(b.code, "th", { numeric: true }));
   const leases = assets.flatMap((a) => a.leases.map((l) => ({ ...l, asset: a })));
@@ -46,7 +47,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
 
       <section className="space-y-2">
         <h2 className="font-semibold">ผัง{cat.unit}</h2>
-        <FloorPlan shopId={shop.id} assets={toFP(assets, true)} unit={cat.unit} editable />
+        <FloorPlan shopId={shop.id} category={shop.category} floors={floors} features={shop.features} assets={toFP(assets, true, floors[0].id)} unit={cat.unit} editable />
       </section>
 
       {pending.length > 0 && (
@@ -92,7 +93,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
           <ul className="text-sm divide-y divide-line">
             {assets.map((a) => (
               <li key={a.id} className="py-2 flex items-center justify-between gap-2">
-                <span><b>{a.code}</b> {a.size} · {baht(a.price)}/{PERIOD[a.period]}</span>
+                <span><b>{a.code}</b> {a.size} · {dimText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)} · {baht(a.price)}/{PERIOD[a.period]}</span>
                 <span className="flex items-center gap-2"><StateBadge state={assetState(a.leases)} />
                   <form action={deleteAsset.bind(null, a.id, shop.id)}><button className="text-red-400 text-xs">ลบ</button></form></span>
               </li>

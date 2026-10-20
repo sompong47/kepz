@@ -40,10 +40,45 @@ export const assets = sqliteTable(
     w: integer("w"),
     h: integer("h"),
     shape: text("shape", { enum: ["RECT", "CIRCLE"] }).notNull().default("RECT"),
+    rot: integer("rot").notNull().default(0), // องศา หมุนรอบจุดกึ่งกลาง
+    floorId: text("floor_id").references(() => floors.id, { onDelete: "set null" }),
     shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
   },
   (t) => [uniqueIndex("assets_shop_code").on(t.shopId, t.code)],
 );
+
+/** รูปของห้อง/ช่อง ไฟล์อยู่ใน uploads/ */
+export const assetPhotos = sqliteTable("asset_photos", {
+  id: id(),
+  file: text("file").notNull(),
+  mime: text("mime").notNull(),
+  assetId: text("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  createdAt: createdAt(),
+});
+
+/** ชั้น/โซนของผัง แต่ละชั้นมีขนาดพื้นที่ของตัวเอง */
+export const floors = sqliteTable("floors", {
+  id: id(),
+  name: text("name").notNull(),
+  sort: integer("sort").notNull().default(0),
+  w: integer("w").notNull().default(1000),
+  h: integer("h").notNull().default(600),
+  shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+});
+
+/** องค์ประกอบผังที่ไม่ได้ให้เช่า เช่น ผนัง ทางเดิน ทางเข้า */
+export const features = sqliteTable("features", {
+  id: id(),
+  kind: text("kind", { enum: ["ZONE", "ROAD", "WALL", "ENTRANCE", "STAIRS", "TOILET", "OFFICE", "TEXT"] }).notNull(),
+  label: text("label"),
+  x: integer("x").notNull(),
+  y: integer("y").notNull(),
+  w: integer("w").notNull(),
+  h: integer("h").notNull(),
+  rot: integer("rot").notNull().default(0),
+  floorId: text("floor_id").notNull().references(() => floors.id, { onDelete: "cascade" }),
+  shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+});
 
 export const leases = sqliteTable("leases", {
   id: id(),
@@ -67,10 +102,26 @@ export const payments = sqliteTable("payments", {
 export const shopRelations = relations(shops, ({ one, many }) => ({
   owner: one(users, { fields: [shops.ownerId], references: [users.id] }),
   assets: many(assets),
+  floors: many(floors),
+  features: many(features),
+}));
+export const floorRelations = relations(floors, ({ one, many }) => ({
+  shop: one(shops, { fields: [floors.shopId], references: [shops.id] }),
+  assets: many(assets),
+  features: many(features),
+}));
+export const featureRelations = relations(features, ({ one }) => ({
+  floor: one(floors, { fields: [features.floorId], references: [floors.id] }),
+  shop: one(shops, { fields: [features.shopId], references: [shops.id] }),
 }));
 export const assetRelations = relations(assets, ({ one, many }) => ({
   shop: one(shops, { fields: [assets.shopId], references: [shops.id] }),
+  floor: one(floors, { fields: [assets.floorId], references: [floors.id] }),
   leases: many(leases),
+  photos: many(assetPhotos),
+}));
+export const assetPhotoRelations = relations(assetPhotos, ({ one }) => ({
+  asset: one(assets, { fields: [assetPhotos.assetId], references: [assets.id] }),
 }));
 export const leaseRelations = relations(leases, ({ one, many }) => ({
   asset: one(assets, { fields: [leases.assetId], references: [assets.id] }),

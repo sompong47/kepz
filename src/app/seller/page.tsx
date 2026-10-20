@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db, shops } from "@/db";
-import { requireRole } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { CATEGORIES, assetState, baht } from "@/lib/domain";
 import { Stat } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function Seller() {
-  const u = await requireRole("SELLER");
+  const u = await requireUser();
   const my = await db.query.shops.findMany({
     where: eq(shops.ownerId, u.id),
     with: { assets: { with: { leases: { with: { payments: true } } } } },

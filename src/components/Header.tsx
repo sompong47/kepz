@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { getUser, homeFor } from "@/lib/auth";
+import { getUser } from "@/lib/auth";
 import { logout } from "@/lib/actions";
-
-const ROLE = { TENANT: "ผู้เช่า", SELLER: "ผู้ขาย", ADMIN: "แอดมิน" } as const;
 
 export default async function Header() {
   const u = await getUser();
@@ -13,7 +11,9 @@ export default async function Header() {
         <nav className="flex items-center gap-2 text-sm">
           {u ? (
             <>
-              <Link href={homeFor(u.role)} className="btn-ghost">แดชบอร์ด · {ROLE[u.role]}</Link>
+              {u.role === "ADMIN" && <Link href="/admin" className="btn-ghost">แอดมิน</Link>}
+              <Link href="/tenant" className="btn-ghost">การเช่าของฉัน</Link>
+              <Link href="/seller" className="btn-ghost">ร้านของฉัน</Link>
               <form action={logout}><button className="btn-ghost">ออก</button></form>
             </>
           ) : (

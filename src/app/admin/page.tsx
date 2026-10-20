@@ -6,7 +6,7 @@ import { CATEGORIES, baht } from "@/lib/domain";
 import { Stat } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-const ROLE = { TENANT: "ผู้เช่า", SELLER: "ผู้ขาย", ADMIN: "แอดมิน" } as const;
+const ROLE = { TENANT: "ผู้ใช้", SELLER: "ผู้ใช้", ADMIN: "แอดมิน" } as const;
 
 export default async function Admin() {
   await requireRole("ADMIN");

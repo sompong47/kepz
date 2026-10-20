@@ -1,6 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { db, leases } from "@/db";
-import { requireRole } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { cancelLease } from "@/lib/actions";
 import { CATEGORIES, BILLING, baht, fmtDate } from "@/lib/domain";
 import { Stat } from "@/components/ui";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 const ST = { PENDING: "รออนุมัติ", ACTIVE: "กำลังเช่า", REJECTED: "ถูกปฏิเสธ", ENDED: "สิ้นสุด/ยกเลิก" } as const;
 
 export default async function Tenant() {
-  const u = await requireRole("TENANT");
+  const u = await requireUser();
   const rows = await db.query.leases.findMany({
     where: eq(leases.tenantId, u.id),
     orderBy: desc(leases.createdAt),
