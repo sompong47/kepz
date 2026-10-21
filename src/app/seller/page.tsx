@@ -27,7 +27,7 @@ export default async function Seller() {
         <Link href="/seller/shops/new" className="btn">+ สร้างร้านใหม่</Link>
       </div>
       <div className="card">
-        <div className="text-sm text-slate-400">รายได้ที่รับแล้วเดือนนี้</div>
+        <div className="text-sm text-muted">รายได้ที่รับแล้วเดือนนี้</div>
         <div className="text-4xl font-extrabold mt-1">{baht(revenue)}</div>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -40,11 +40,11 @@ export default async function Seller() {
         {my.map((s) => (
           <Link key={s.id} href={`/seller/shops/${s.id}`} className="card hover:border-brand">
             <div className="text-2xl">{CATEGORIES[s.category].icon}</div>
-            <div className="font-bold mt-1">{s.name} {!s.active && <span className="text-xs text-red-400">(ถูกระงับ)</span>}</div>
-            <div className="text-sm text-slate-400">{s.assets.length} {CATEGORIES[s.category].unit}</div>
+            <div className="font-bold mt-1">{s.name} {!s.active && <span className="text-xs text-danger">(ถูกระงับ)</span>}</div>
+            <div className="text-sm text-muted">{s.assets.length} {CATEGORIES[s.category].unit}</div>
           </Link>
         ))}
-        {!my.length && <p className="text-slate-400">ยังไม่มีร้าน — กด “สร้างร้านใหม่” เพื่อเริ่มต้น</p>}
+        {!my.length && <p className="text-muted">ยังไม่มีร้าน — กด “สร้างร้านใหม่” เพื่อเริ่มต้น</p>}
       </div>
     </div>
   );

@@ -41,7 +41,7 @@ function aabb(b: Box): Rect {
 }
 /** ข้อความกลับหัวเมื่อหมุนเกิน 90° ให้หมุนกลับเพื่ออ่านง่าย */
 const upright = (rot: number) => (rot > 90 && rot <= 270 ? "rotate(180deg)" : undefined);
-const FILL: Record<AssetState, string> = { VACANT: "#4b5563", OCCUPIED: "#ffc800", EXPIRING: "#e08e0b", PENDING: "#0ea5e9" };
+const FILL: Record<AssetState, string> = { VACANT: "#e5e5e5", OCCUPIED: "#ffc700", EXPIRING: "#fb923c", PENDING: "#38bdf8" };
 
 /** หน้าตาขององค์ประกอบผังแต่ละชนิด */
 function featureLook(f: FPFeature): { style: React.CSSProperties; text: string | null } {
@@ -49,28 +49,28 @@ function featureLook(f: FPFeature): { style: React.CSSProperties; text: string |
   const horiz = f.w >= f.h;
   switch (f.kind) {
     case "ZONE":
-      return { style: { border: "2px dashed rgba(148,163,184,.55)", background: "rgba(148,163,184,.07)", borderRadius: 12, alignItems: "flex-start", justifyContent: "flex-start", padding: 6, color: "#cbd5e1", fontSize: 13 }, text: name };
+      return { style: { border: "2px dashed #bdbdbd", background: "rgba(255,199,0,.06)", borderRadius: 12, alignItems: "flex-start", justifyContent: "flex-start", padding: 6, color: "#333", fontSize: 13 }, text: name };
     case "ROAD":
       return {
         style: {
-          background: "#2b2f37", color: "#94a3b8", fontSize: 12,
-          backgroundImage: `repeating-linear-gradient(${horiz ? "90deg" : "180deg"}, #6b7280 0 14px, transparent 14px 28px)`,
+          background: "#dcdad2", color: "#555", fontSize: 12,
+          backgroundImage: `repeating-linear-gradient(${horiz ? "90deg" : "180deg"}, #ffffff 0 14px, transparent 14px 28px)`,
           backgroundSize: horiz ? "100% 2px" : "2px 100%", backgroundPosition: "center", backgroundRepeat: "no-repeat",
         },
         text: f.label,
       };
     case "WALL":
-      return { style: { background: "#a1a1aa", borderRadius: 2 }, text: null };
+      return { style: { background: "#333333", borderRadius: 2 }, text: null };
     case "ENTRANCE":
-      return { style: { background: "rgba(34,197,94,.2)", border: "2px solid #22c55e", borderRadius: 8, color: "#86efac", fontSize: 12 }, text: `⇆ ${name}` };
+      return { style: { background: "#dcfce7", border: "2px solid #16a34a", borderRadius: 8, color: "#166534", fontSize: 12, fontWeight: 600 }, text: `⇆ ${name}` };
     case "STAIRS":
-      return { style: { background: "repeating-linear-gradient(0deg,#334155 0 8px,#475569 8px 10px)", borderRadius: 6, color: "#e2e8f0", fontSize: 12 }, text: name };
+      return { style: { background: "repeating-linear-gradient(0deg,#f1f1f1 0 8px,#c8c8c8 8px 10px)", border: "1px solid #bdbdbd", borderRadius: 6, color: "#333", fontSize: 12 }, text: name };
     case "TOILET":
-      return { style: { background: "#1e3a5f", border: "2px solid #38bdf8", borderRadius: 8, color: "#bae6fd", fontSize: 12 }, text: `🚻 ${name}` };
+      return { style: { background: "#e0f2fe", border: "2px solid #0284c7", borderRadius: 8, color: "#075985", fontSize: 12 }, text: `🚻 ${name}` };
     case "OFFICE":
-      return { style: { background: "#3f3f46", border: "2px solid #a1a1aa", borderRadius: 8, color: "#f4f4f5", fontSize: 12 }, text: name };
+      return { style: { background: "#f6f4ec", border: "2px solid #757575", borderRadius: 8, color: "#111", fontSize: 12 }, text: name };
     case "TEXT":
-      return { style: { color: "#f8fafc", fontWeight: 700, fontSize: Math.max(11, Math.min(48, f.h * 0.6)), whiteSpace: "nowrap" }, text: name };
+      return { style: { color: "#111", fontWeight: 700, fontSize: Math.max(11, Math.min(48, f.h * 0.6)), whiteSpace: "nowrap" }, text: name };
   }
 }
 
@@ -404,7 +404,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             style={{ [m.includes("n") ? "top" : "bottom"]: -7, [m.includes("w") ? "left" : "right"]: -7, cursor: m === "nw" || m === "se" ? "nwse-resize" : "nesw-resize" }}
           />
         ))}
-        <span className="absolute left-1/2 -top-6 h-6 w-0.5 -translate-x-1/2 bg-white/70 pointer-events-none" />
+        <span className="absolute left-1/2 -top-6 h-6 w-0.5 -translate-x-1/2 bg-ink/60 pointer-events-none" />
         <span
           title="ลากเพื่อหมุน (Shift = อิสระ)"
           onPointerDown={(e) => down(e, id, b, "rot")}
@@ -420,7 +420,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
         key={f.id}
         onPointerDown={(e) => down(e, f.id, f, "move")}
         className={`absolute flex items-center justify-center text-center leading-tight overflow-visible ${edit ? "cursor-move" : ""}`}
-        style={{ left: f.x, top: f.y, width: f.w, height: f.h, transform: f.rot ? `rotate(${f.rot}deg)` : undefined, pointerEvents: edit ? "auto" : "none", outline: selIds.includes(f.id) ? "3px solid #fff" : "none", outlineOffset: 2, ...style }}
+        style={{ left: f.x, top: f.y, width: f.w, height: f.h, transform: f.rot ? `rotate(${f.rot}deg)` : undefined, pointerEvents: edit ? "auto" : "none", outline: selIds.includes(f.id) ? "3px solid #111" : "none", outlineOffset: 2, ...style }}
       >
         {text && <span className="pointer-events-none" style={{ transform: upright(f.rot) }}>{text}</span>}
         {handles(f.id, f)}
@@ -433,9 +433,9 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
       {(floors.length > 1 || (editable && edit)) && (
         <div className="flex flex-wrap items-center gap-2">
           {floors.map((f) => (
-            <button key={f.id} onClick={() => switchFloor(f.id)} className={`btn-ghost !py-1.5 ${f.id === floor?.id ? "!border-brand text-brand" : ""}`}>{f.name}</button>
+            <button key={f.id} onClick={() => switchFloor(f.id)} className={`btn-ghost !py-1.5 ${f.id === floor?.id ? "pill-on" : ""}`}>{f.name}</button>
           ))}
-          {editable && edit && <button className="btn-ghost !py-1.5 text-slate-400" onClick={() => start(async () => switchFloor(await addFloor(shopId)))}>+ เพิ่มชั้น/โซน</button>}
+          {editable && edit && <button className="btn-ghost !py-1.5 text-muted" onClick={() => start(async () => switchFloor(await addFloor(shopId)))}>+ เพิ่มชั้น/โซน</button>}
         </div>
       )}
 
@@ -448,7 +448,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
                 <button className="btn-ghost" onClick={() => run(() => addShape(shopId, floor.id, "RECT"))}>▭ + {unit}</button>
                 <button className="btn-ghost" onClick={() => run(() => addShape(shopId, floor.id, "CIRCLE"))}>◯ + วงกลม</button>
                 <select
-                  className="btn-ghost bg-bg"
+                  className="btn-ghost"
                   value=""
                   onChange={(e) => { const k = e.target.value as FeatureKind; if (k) run(() => addFeature(shopId, floor.id, k)); }}
                 >
@@ -462,20 +462,20 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             )}
           </>
         )}
-        <div className="ml-auto flex flex-wrap gap-3 text-xs text-slate-400">
+        <div className="ml-auto flex flex-wrap gap-3 text-xs text-muted">
           {(Object.keys(STATE_LABEL) as AssetState[]).map((k) => (
             <span key={k} className="flex items-center gap-1.5"><i className={`inline-block size-2.5 rounded-full ${STATE_CLASS[k].split(" ")[0]}`} />{STATE_LABEL[k]}</span>
           ))}
         </div>
       </div>
       {edit && (
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-muted">
           ลากเพื่อย้าย · ลากมุมเพื่อปรับขนาด · ลากจุดเหลืองด้านบนเพื่อหมุน (R = 90°) · ลากบนที่ว่างเพื่อเลือกหลายชิ้น · Shift/Ctrl+คลิก เลือกเพิ่ม · Delete ลบ · Ctrl+C/X/V คัดลอก/ตัด/วาง · Ctrl+Z/Y เลิกทำ/ทำซ้ำ {saving === "saving" ? "· กำลังบันทึก…" : saving === "saved" ? "· บันทึกแล้ว ✓" : ""}
         </p>
       )}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <div ref={wrap} className="rounded-2xl border border-line overflow-hidden bg-[#111318]" style={{ height: H * scale }}>
+        <div ref={wrap} className="rounded-2xl border border-line overflow-hidden bg-white" style={{ height: H * scale }}>
           <div
             ref={canvas}
             onPointerDown={bgDown}
@@ -484,7 +484,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             className="relative origin-top-left touch-none select-none"
             style={{
               width: W, height: H, transform: `scale(${scale})`,
-              backgroundImage: edit ? "linear-gradient(#22252c 1px,transparent 1px),linear-gradient(90deg,#22252c 1px,transparent 1px)" : "none",
+              backgroundImage: edit ? "linear-gradient(#efece2 1px,transparent 1px),linear-gradient(90deg,#efece2 1px,transparent 1px)" : "none",
               backgroundSize: `${CANVAS.grid * 2}px ${CANVAS.grid * 2}px`,
             }}
           >
@@ -496,7 +496,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
                 className={`absolute flex flex-col items-center justify-center text-black font-semibold leading-tight ${edit ? "cursor-move" : "cursor-pointer"}`}
                 style={{
                   left: a.x, top: a.y, width: a.w, height: a.h, transform: a.rot ? `rotate(${a.rot}deg)` : undefined, background: FILL[a.state], borderRadius: a.shape === "CIRCLE" ? "9999px" : 10,
-                  color: a.state === "VACANT" ? "#e5e7eb" : "#000", outline: selIds.includes(a.id) ? "3px solid #fff" : "none", outlineOffset: 2,
+                  color: "#111", boxShadow: "inset 0 0 0 1px rgba(17,17,17,.12)", outline: selIds.includes(a.id) ? "3px solid #111" : "none", outlineOffset: 2,
                 }}
               >
                 <span className="flex flex-col items-center pointer-events-none" style={{ transform: upright(a.rot) }}>
@@ -509,7 +509,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             {front.map(renderFeature)}
             {marquee && <div className="absolute border-2 border-brand bg-brand/10 pointer-events-none" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
             {!onFloor.length && !fOnFloor.length && (
-              <p className="absolute inset-0 grid place-items-center text-slate-500">{editable ? "กด “แก้ไขผัง” แล้วเพิ่มห้อง ผนัง ทางเดิน หรือใช้ “สร้างผังอัตโนมัติ”" : "ยังไม่มีผัง"}</p>
+              <p className="absolute inset-0 grid place-items-center text-muted">{editable ? "กด “แก้ไขผัง” แล้วเพิ่มห้อง ผนัง ทางเดิน หรือใช้ “สร้างผังอัตโนมัติ”" : "ยังไม่มีผัง"}</p>
             )}
           </div>
         </div>
@@ -519,14 +519,14 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
         ) : selIds.length > 1 ? (
           <div className="card space-y-3 text-sm self-start">
             <div className="text-lg font-bold">เลือก {selIds.length} รายการ</div>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-muted">
               {unit} {selIds.filter(isAsset).length} · องค์ประกอบผัง {selIds.filter((i) => !isAsset(i)).length}<br />
               ลากชิ้นใดก็ได้เพื่อย้ายทั้งกลุ่ม · ปุ่มลูกศรเลื่อน · R หมุน · Delete ลบ · Esc ยกเลิก · Shift/Ctrl+คลิก เพิ่ม/เอาออก
             </p>
             <div className="flex flex-wrap gap-2">
               <button className="btn-ghost" onClick={() => rotateBy(selIds, -90)}>⟲ 90°</button>
               <button className="btn-ghost" onClick={() => rotateBy(selIds, 90)}>⟳ 90°</button>
-              <button className="btn-ghost !text-red-400" onClick={removeSelected}>ลบที่เลือกทั้งหมด</button>
+              <button className="btn-ghost !text-danger" onClick={removeSelected}>ลบที่เลือกทั้งหมด</button>
               <button className="btn-ghost" onClick={() => setSelIds([])}>ยกเลิกการเลือก</button>
             </div>
           </div>
@@ -548,37 +548,37 @@ function Panel({ shopId, a, unit, editable, edit, canRent, onShape, onRotate, on
   onShape: (a: FPAsset) => void; onRotate: (id: string, deg: number, absolute?: boolean) => void; onDup: (id: string) => void; onRemove: (id: string) => void;
 }) {
   const [st, act, pending] = useActionState(updateAsset.bind(null, shopId, a?.id ?? ""), undefined);
-  if (!a) return <div className="card text-sm text-slate-400 self-start">แตะ{unit}ในผังเพื่อดูรายละเอียด สถานะ สัญญา และการชำระเงิน</div>;
+  if (!a) return <div className="card text-sm text-muted self-start">แตะ{unit}ในผังเพื่อดูรายละเอียด สถานะ สัญญา และการชำระเงิน</div>;
   const l = a.lease;
   return (
     <div className="card space-y-3 text-sm self-start">
       <div className="flex items-center justify-between">
-        <div className="text-xl font-bold">{a.code} <span className="text-sm font-normal text-slate-400">{a.size}</span></div>
+        <div className="text-xl font-bold">{a.code} <span className="text-sm font-normal text-muted">{a.size}</span></div>
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATE_CLASS[a.state]}`}>{STATE_LABEL[a.state]}</span>
       </div>
-      <div className="text-slate-400">ขนาด {dimText(a.w, a.h)} · {areaText(a.w, a.h)}</div>
-      <div className="text-brand font-semibold">{a.price > 0 ? <>{baht(a.price)} <span className="text-slate-400 font-normal">/ {PERIOD[a.period]}</span></> : <span className="text-slate-400 font-normal">ยังไม่ตั้งราคา</span>}</div>
-      {a.note && <p className="text-slate-400">{a.note}</p>}
+      <div className="text-muted">ขนาด {dimText(a.w, a.h)} · {areaText(a.w, a.h)}</div>
+      <div className="text-brand-ink font-semibold">{a.price > 0 ? <>{baht(a.price)} <span className="text-muted font-normal">/ {PERIOD[a.period]}</span></> : <span className="text-muted font-normal">ยังไม่ตั้งราคา</span>}</div>
+      {a.note && <p className="text-muted">{a.note}</p>}
       <Photos shopId={shopId} assetId={a.id} photos={a.photos} editable={editable} />
 
       {l ? (
         <div className="space-y-2 border-t border-line pt-3">
-          <div><span className="text-slate-400">ผู้เช่า:</span> {l.tenant} {l.phone && <span className="text-slate-400">({l.phone})</span>}</div>
-          <div><span className="text-slate-400">สัญญา:</span> {fmtDate(l.start)} – {fmtDate(l.end)}</div>
-          <div><span className="text-slate-400">รอบชำระ:</span> {BILLING[l.billing as keyof typeof BILLING]}</div>
+          <div><span className="text-muted">ผู้เช่า:</span> {l.tenant} {l.phone && <span className="text-muted">({l.phone})</span>}</div>
+          <div><span className="text-muted">สัญญา:</span> {fmtDate(l.start)} – {fmtDate(l.end)}</div>
+          <div><span className="text-muted">รอบชำระ:</span> {BILLING[l.billing as keyof typeof BILLING]}</div>
           <div className="space-y-1">
             {l.payments.map((p) => (
               <div key={p.id} className="flex items-center justify-between rounded-lg bg-panel2 px-2.5 py-1.5 text-xs">
                 <span>{fmtDate(p.due)} · {baht(p.amount)}</span>
-                {p.paid ? <span className="text-emerald-400">ชำระแล้ว</span> : editable ? (
-                  <form action={markPaid.bind(null, p.id)}><button className={`font-semibold ${p.due < Date.now() ? "text-red-400" : "text-brand"}`}>ยืนยันรับเงิน</button></form>
-                ) : <span className="text-slate-400">รอชำระ</span>}
+                {p.paid ? <span className="text-ok">ชำระแล้ว</span> : editable ? (
+                  <form action={markPaid.bind(null, p.id)}><button className={`font-semibold ${p.due < Date.now() ? "text-danger" : "text-brand-ink"}`}>ยืนยันรับเงิน</button></form>
+                ) : <span className="text-muted">รอชำระ</span>}
               </div>
             ))}
           </div>
         </div>
       ) : a.endDate ? (
-        <div className="border-t border-line pt-3 text-slate-400">มีผู้เช่า · สัญญาถึง {fmtDate(a.endDate)}</div>
+        <div className="border-t border-line pt-3 text-muted">มีผู้เช่า · สัญญาถึง {fmtDate(a.endDate)}</div>
       ) : null}
 
       {canRent && a.price > 0 && (
@@ -597,7 +597,7 @@ function Panel({ shopId, a, unit, editable, edit, canRent, onShape, onRotate, on
             <label><span className="label">ต่อ</span><select name="period" defaultValue={a.period} className="input"><option value="MONTH">เดือน</option><option value="DAY">วัน</option></select></label>
           </div>
           <label><span className="label">หมายเหตุ</span><input name="note" defaultValue={a.note ?? ""} className="input" /></label>
-          {st?.error && <p className="text-red-400 text-xs">{st.error}</p>}
+          {st?.error && <p className="text-danger text-xs">{st.error}</p>}
           <div className="flex flex-wrap gap-2">
             <button className="btn" disabled={pending}>บันทึก</button>
             <button type="button" className="btn-ghost" onClick={() => onShape(a)}>{a.shape === "RECT" ? "เปลี่ยนเป็นวงกลม" : "เปลี่ยนเป็นสี่เหลี่ยม"}</button>
@@ -605,7 +605,7 @@ function Panel({ shopId, a, unit, editable, edit, canRent, onShape, onRotate, on
           </div>
           <RotateRow rot={a.rot} onRotate={(d, abs) => onRotate(a.id, d, abs)} />
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-ghost !text-red-400" onClick={() => onRemove(a.id)}>ลบ</button>
+            <button type="button" className="btn-ghost !text-danger" onClick={() => onRemove(a.id)}>ลบ</button>
           </div>
         </form>
       )}
@@ -621,7 +621,7 @@ function FeaturePanel({ shopId, f, onRotate, onDup, onRemove }: { shopId: string
   return (
     <div className="card space-y-3 text-sm self-start">
       <div className="text-lg font-bold">{FEATURES[f.kind].label}</div>
-      <div className="text-xs text-slate-400">ขนาด {dimText(f.w, f.h)} · ไม่ได้เปิดให้เช่า</div>
+      <div className="text-xs text-muted">ขนาด {dimText(f.w, f.h)} · ไม่ได้เปิดให้เช่า</div>
       <label className="block"><span className="label">ชนิด</span>
         <select value={kind} onChange={(e) => setKind(e.target.value as FeatureKind)} className="input">
           {(Object.keys(FEATURES) as FeatureKind[]).map((k) => <option key={k} value={k}>{FEATURES[k].label}</option>)}
@@ -634,7 +634,7 @@ function FeaturePanel({ shopId, f, onRotate, onDup, onRemove }: { shopId: string
       <div className="flex flex-wrap gap-2">
         <button className="btn" disabled={pending} onClick={save}>บันทึก</button>
         <button className="btn-ghost" onClick={onDup}>ทำซ้ำ</button>
-        <button className="btn-ghost !text-red-400" onClick={onRemove}>ลบ</button>
+        <button className="btn-ghost !text-danger" onClick={onRemove}>ลบ</button>
       </div>
     </div>
   );
@@ -657,7 +657,7 @@ function RotateRow({ rot, onRotate }: { rot: number; onRotate: (deg: number, abs
         onBlur={(e) => commit(e.currentTarget)}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(e.currentTarget); } }}
       />
-      <span className="text-slate-400">°</span>
+      <span className="text-muted">°</span>
     </div>
   );
 }
@@ -670,7 +670,7 @@ function FloorPanel({ shopId, floor, canDelete, onDeleted }: { shopId: string; f
   return (
     <div className="card space-y-3 text-sm self-start">
       <div className="text-lg font-bold">ตั้งค่าชั้น/โซน</div>
-      <p className="text-xs text-slate-400">แตะห้องหรือองค์ประกอบในผังเพื่อแก้ไข · ใช้ “องค์ประกอบผัง” เพิ่มผนัง ทางเดิน ทางเข้า บันได ห้องน้ำ ฯลฯ</p>
+      <p className="text-xs text-muted">แตะห้องหรือองค์ประกอบในผังเพื่อแก้ไข · ใช้ “องค์ประกอบผัง” เพิ่มผนัง ทางเดิน ทางเข้า บันได ห้องน้ำ ฯลฯ</p>
       <label className="block"><span className="label">ชื่อ</span><input value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} className="input" /></label>
       <div>
         <span className="label">ขนาดพื้นที่ (กว้าง × ยาว เมตร)</span>
@@ -682,11 +682,11 @@ function FloorPanel({ shopId, floor, canDelete, onDeleted }: { shopId: string; f
           {SIZES.map(([w, h, t]) => <button key={t} type="button" className="btn-ghost !py-1 text-xs" onClick={() => setV({ ...v, w, h })}>{t} {w}×{h} ม.</button>)}
         </div>
       </div>
-      {msg && <p className="text-xs text-red-400">{msg}</p>}
+      {msg && <p className="text-xs text-danger">{msg}</p>}
       <div className="flex flex-wrap gap-2">
         <button className="btn" disabled={pending} onClick={() => start(async () => { const r = await updateFloor(shopId, floor.id, { name: v.name, w: toPx(v.w), h: toPx(v.h) }); setMsg(r?.error ?? null); })}>บันทึก</button>
         {canDelete && (
-          <button className="btn-ghost !text-red-400" disabled={pending} onClick={() => {
+          <button className="btn-ghost !text-danger" disabled={pending} onClick={() => {
             if (!confirm(`ลบ ${floor.name}? องค์ประกอบผังในชั้นนี้จะถูกลบด้วย`)) return;
             start(async () => { const r = await deleteFloor(shopId, floor.id); if (r?.error) setMsg(r.error); else onDeleted(); });
           }}>ลบชั้นนี้</button>
@@ -708,7 +708,7 @@ function GenPanel({ shopId, floorId, category, unit, onDone }: { shopId: string;
   return (
     <form action={act} className="card space-y-3 text-sm self-start">
       <div className="text-lg font-bold">⚡ สร้างผังอัตโนมัติ</div>
-      <p className="text-xs text-slate-400">วาง{unit}เป็นแถว ๆ พร้อมทางเดินคั่น ต่อจากของเดิมด้านล่าง (ขยายพื้นที่ให้อัตโนมัติ)</p>
+      <p className="text-xs text-muted">วาง{unit}เป็นแถว ๆ พร้อมทางเดินคั่น ต่อจากของเดิมด้านล่าง (ขยายพื้นที่ให้อัตโนมัติ)</p>
       <div className="grid grid-cols-2 gap-2">
         <N name="rows" label="จำนวนแถว" v={p.rows} min={1} />
         <N name="cols" label={`${unit}ต่อแถว`} v={p.cols} min={1} />
@@ -727,7 +727,7 @@ function GenPanel({ shopId, floorId, category, unit, onDone }: { shopId: string;
         <label><span className="label">ต่อ</span><select name="period" defaultValue="MONTH" className="input"><option value="MONTH">เดือน</option><option value="DAY">วัน</option></select></label>
       </div>
       <label className="block"><span className="label">ป้ายขนาด (ไม่บังคับ)</span><input name="size" className="input" /></label>
-      {st?.error && <p className="text-red-400 text-xs">{st.error}</p>}
+      {st?.error && <p className="text-danger text-xs">{st.error}</p>}
       <div className="flex gap-2">
         <button className="btn" disabled={pending}>{pending ? "กำลังสร้าง…" : "สร้างผัง"}</button>
         <button type="button" className="btn-ghost" onClick={() => onDone()}>ยกเลิก</button>

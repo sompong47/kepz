@@ -1,16 +1,28 @@
 @import "tailwindcss";
 
+/* โทนสีตาม Brand Guide: เหลือง #FFC700 + ออฟไวท์ #FFFDF5 + ดำ/เทา */
 @theme {
-  --color-brand: #ffc800;
-  --color-bg: #0b0c0f;
-  --color-panel: #1a1c21;
-  --color-panel2: #262930;
-  --color-line: #33363e;
-  --font-sans: "Noto Sans Thai", "Sarabun", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-brand: #ffc700;
+  --color-brand-dark: #e6b300;
+  --color-brand-ink: #8a6a00; /* ตัวอักษรโทนเหลืองบนพื้นอ่อน ให้อ่านออก */
+  --color-ink: #111111;
+  --color-ink2: #333333;
+  --color-muted: #757575;
+  --color-line: #e5e5e5;
+  --color-bg: #fffdf5;
+  --color-panel: #ffffff;
+  --color-panel2: #f6f4ec;
+  --color-ok: #15803d;
+  --color-warn: #b45309;
+  --color-danger: #dc2626;
+  --font-sans: var(--font-kanit), "Kanit", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
-body { background: var(--color-bg); color: #f2f3f5; }
-.input { @apply w-full rounded-xl bg-panel2 border border-line px-3 py-2.5 text-sm outline-none focus:border-brand placeholder:text-slate-500; }
-.btn { @apply inline-flex items-center justify-center gap-1 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-black hover:brightness-110 disabled:opacity-50 cursor-pointer; }
-.btn-ghost { @apply inline-flex items-center justify-center rounded-xl border border-line px-3 py-2 text-sm hover:bg-panel2 cursor-pointer; }
-.card { @apply rounded-2xl bg-panel border border-line p-5; }
-.label { @apply block text-xs text-slate-400 mb-1; }
+body { background: var(--color-bg); color: var(--color-ink); }
+.input { @apply w-full rounded-xl bg-panel border border-line px-3 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/30 placeholder:text-muted; }
+.btn { @apply inline-flex items-center justify-center gap-1 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-ink hover:bg-brand-dark disabled:opacity-50 cursor-pointer transition-colors; }
+.btn-dark { @apply inline-flex items-center justify-center gap-1 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink2 disabled:opacity-50 cursor-pointer transition-colors; }
+.btn-ghost { @apply inline-flex items-center justify-center rounded-xl border border-line bg-panel px-3 py-2 text-sm text-ink hover:bg-panel2 disabled:opacity-40 cursor-pointer transition-colors; }
+.card { @apply rounded-2xl bg-panel border border-line p-5 shadow-[0_1px_2px_rgba(17,17,17,.04)]; }
+.label { @apply block text-xs text-muted mb-1; }
+/* ปุ่มตัวกรอง/แท็บที่ถูกเลือก */
+.pill-on { @apply !bg-brand !border-brand !text-ink font-semibold; }

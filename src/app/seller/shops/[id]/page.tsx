@@ -55,7 +55,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
           <h2 className="font-semibold">คำขอเช่ารออนุมัติ ({pending.length})</h2>
           {pending.map((l) => (
             <div key={l.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
-              <div className="text-sm"><b>{l.asset.code}</b> · {l.tenant.name} {l.tenant.phone && `(${l.tenant.phone})`}<br /><span className="text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)} · {BILLING[l.billing]}</span></div>
+              <div className="text-sm"><b>{l.asset.code}</b> · {l.tenant.name} {l.tenant.phone && `(${l.tenant.phone})`}<br /><span className="text-muted">{fmtDate(l.startDate)} – {fmtDate(l.endDate)} · {BILLING[l.billing]}</span></div>
               <div className="flex gap-2">
                 <form action={decideLease.bind(null, l.id, "ACTIVE")}><button className="btn">อนุมัติ</button></form>
                 <form action={decideLease.bind(null, l.id, "REJECTED")}><button className="btn-ghost">ปฏิเสธ</button></form>
@@ -70,20 +70,20 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
         {active.map((l) => (
           <div key={l.id} className="border-t border-line pt-3 space-y-2">
             <div className="flex flex-wrap justify-between gap-2 text-sm">
-              <div><b>{l.asset.code}</b> · {l.tenant.name} · {baht(l.asset.price)}/{PERIOD[l.asset.period]}<br /><span className="text-slate-400">หมดสัญญา {fmtDate(l.endDate)}</span></div>
+              <div><b>{l.asset.code}</b> · {l.tenant.name} · {baht(l.asset.price)}/{PERIOD[l.asset.period]}<br /><span className="text-muted">หมดสัญญา {fmtDate(l.endDate)}</span></div>
               <form action={decideLease.bind(null, l.id, "ENDED")}><button className="btn-ghost">จบสัญญา</button></form>
             </div>
             <div className="flex flex-wrap gap-2">
               {[...l.payments].sort((a, b) => +a.dueDate - +b.dueDate).map((p) => (
                 <div key={p.id} className="rounded-lg bg-panel2 px-2.5 py-1.5 text-xs flex items-center gap-2">
                   <span>{fmtDate(p.dueDate)} · {baht(p.amount)}</span>
-                  {p.paidAt ? <span className="text-emerald-400">✓ ชำระแล้ว</span> : <form action={markPaid.bind(null, p.id)}><button className={`font-semibold ${+p.dueDate < Date.now() ? "text-red-400" : "text-brand"}`}>ยืนยันรับเงิน</button></form>}
+                  {p.paidAt ? <span className="text-ok">✓ ชำระแล้ว</span> : <form action={markPaid.bind(null, p.id)}><button className={`font-semibold ${+p.dueDate < Date.now() ? "text-danger" : "text-brand-ink"}`}>ยืนยันรับเงิน</button></form>}
                 </div>
               ))}
             </div>
           </div>
         ))}
-        {!active.length && <p className="text-sm text-slate-400">ยังไม่มีสัญญา</p>}
+        {!active.length && <p className="text-sm text-muted">ยังไม่มีสัญญา</p>}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">
@@ -95,7 +95,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
               <li key={a.id} className="py-2 flex items-center justify-between gap-2">
                 <span><b>{a.code}</b> {a.size} · {dimText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)} · {baht(a.price)}/{PERIOD[a.period]}</span>
                 <span className="flex items-center gap-2"><StateBadge state={assetState(a.leases)} />
-                  <form action={deleteAsset.bind(null, a.id, shop.id)}><button className="text-red-400 text-xs">ลบ</button></form></span>
+                  <form action={deleteAsset.bind(null, a.id, shop.id)}><button className="text-danger text-xs">ลบ</button></form></span>
               </li>
             ))}
           </ul>

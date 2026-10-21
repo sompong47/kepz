@@ -24,9 +24,9 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
   return (
     <div className="space-y-6">
       <div>
-        <div className="text-sm text-slate-400">{cat.icon} {cat.label}</div>
+        <div className="text-sm text-muted">{cat.icon} {cat.label}</div>
         <h1 className="text-3xl font-bold">{shop.name}</h1>
-        <p className="text-slate-400">{[shop.location, shop.phone].filter(Boolean).join(" · ")}</p>
+        <p className="text-muted">{[shop.location, shop.phone].filter(Boolean).join(" · ")}</p>
         {shop.description && <p className="mt-2">{shop.description}</p>}
       </div>
       <FloorPlan shopId={shop.id} category={shop.category} floors={floors} features={shop.features} assets={fp} unit={cat.unit} canRent={canRent} />
@@ -43,14 +43,14 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
               )}
               <div className="flex items-start justify-between">
                 <div>
-                  <div className="text-xl font-bold">{a.code} <span className="text-sm font-normal text-slate-400">{a.size}</span></div>
-                  <div className="text-sm text-slate-400">{dimText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)} · {areaText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)}</div>
+                  <div className="text-xl font-bold">{a.code} <span className="text-sm font-normal text-muted">{a.size}</span></div>
+                  <div className="text-sm text-muted">{dimText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)} · {areaText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)}</div>
                 </div>
                 <StateBadge state={st} />
               </div>
-              <div className="mt-2 text-brand font-semibold">{baht(a.price)} <span className="text-slate-400 font-normal text-sm">/ {PERIOD[a.period]}</span></div>
-              {a.note && <p className="text-xs text-slate-400 mt-1">{a.note}</p>}
-              {busyUntil && st !== "VACANT" && <p className="text-xs text-slate-400 mt-1">ไม่ว่างถึง {fmtDate(busyUntil)}</p>}
+              <div className="mt-2 text-brand-ink font-semibold">{baht(a.price)} <span className="text-muted font-normal text-sm">/ {PERIOD[a.period]}</span></div>
+              {a.note && <p className="text-xs text-muted mt-1">{a.note}</p>}
+              {busyUntil && st !== "VACANT" && <p className="text-xs text-muted mt-1">ไม่ว่างถึง {fmtDate(busyUntil)}</p>}
               {!u ? (
                 <Link href="/login" className="btn-ghost w-full mt-3">เข้าสู่ระบบเพื่อเช่า</Link>
               ) : canRent && a.price > 0 ? (
@@ -59,7 +59,7 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
             </div>
           );
         })}
-        {!assets.length && <p className="text-slate-400">ร้านนี้ยังไม่มีรายการ</p>}
+        {!assets.length && <p className="text-muted">ร้านนี้ยังไม่มีรายการ</p>}
       </div>
     </div>
   );

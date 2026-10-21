@@ -58,7 +58,7 @@ export default function Photos({ shopId, assetId, photos, editable }: { shopId: 
   if (!photos.length && !editable) return null;
   return (
     <div className="space-y-2 border-t border-line pt-3">
-      <div className="text-slate-400">รูปภาพ {photos.length > 0 && `(${photos.length})`}</div>
+      <div className="text-muted">รูปภาพ {photos.length > 0 && `(${photos.length})`}</div>
       <div className="grid grid-cols-3 gap-2">
         {photos.map((id, i) => (
           <div key={id} className="relative group aspect-square">
@@ -80,12 +80,12 @@ export default function Photos({ shopId, assetId, photos, editable }: { shopId: 
             type="button"
             disabled={pending}
             onClick={() => input.current?.click()}
-            className="aspect-square rounded-lg border-2 border-dashed border-line text-slate-400 text-xs hover:border-brand hover:text-brand disabled:opacity-50"
+            className="aspect-square rounded-lg border-2 border-dashed border-line text-muted text-xs hover:border-brand hover:text-brand-ink disabled:opacity-50"
           >＋<br />เพิ่มรูป</button>
         )}
       </div>
       {editable && <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden onChange={(e) => upload(e.target.files)} />}
-      {status && <p className={`text-xs whitespace-pre-line ${pending ? "text-slate-400" : "text-red-400"}`}>{status}</p>}
+      {status && <p className={`text-xs whitespace-pre-line ${pending ? "text-muted" : "text-danger"}`}>{status}</p>}
 
       {view !== null && photos[view] && (
         <div className="fixed inset-0 z-50 bg-black/90 grid place-items-center p-4" onClick={() => setView(null)}>
@@ -98,7 +98,7 @@ export default function Photos({ shopId, assetId, photos, editable }: { shopId: 
               <button className="btn-ghost" onClick={() => setView((view + 1) % photos.length)}>›</button>
             </div>
           )}
-          <button className="absolute top-4 right-4 btn-ghost text-white" onClick={() => setView(null)}>✕ ปิด</button>
+          <button className="absolute top-4 right-4 btn-ghost" onClick={() => setView(null)}>✕ ปิด</button>
         </div>
       )}
     </div>

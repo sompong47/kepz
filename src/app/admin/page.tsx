@@ -31,7 +31,7 @@ export default async function Admin() {
         <div className="divide-y divide-line text-sm">
           {shops.map((s) => (
             <div key={s.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
-              <div><Link href={`/seller/shops/${s.id}`} className="font-semibold hover:text-brand">{CATEGORIES[s.category].icon} {s.name}</Link> <span className="text-slate-400">โดย {s.owner.name} · {s.assets.length} รายการ</span></div>
+              <div><Link href={`/seller/shops/${s.id}`} className="font-semibold hover:text-brand-ink">{CATEGORIES[s.category].icon} {s.name}</Link> <span className="text-muted">โดย {s.owner.name} · {s.assets.length} รายการ</span></div>
               <form action={toggleShop.bind(null, s.id)}><button className={s.active ? "btn-ghost" : "btn"}>{s.active ? "ระงับร้าน" : "เปิดร้านอีกครั้ง"}</button></form>
             </div>
           ))}
@@ -40,7 +40,7 @@ export default async function Admin() {
       <section className="card">
         <h2 className="font-semibold mb-3">ผู้ใช้</h2>
         <table className="w-full text-sm"><tbody>
-          {users.map((u) => (<tr key={u.id} className="border-t border-line"><td className="py-1.5">{u.name}</td><td className="text-slate-400">{u.email}</td><td className="text-right">{ROLE[u.role]}</td></tr>))}
+          {users.map((u) => (<tr key={u.id} className="border-t border-line"><td className="py-1.5">{u.name}</td><td className="text-muted">{u.email}</td><td className="text-right">{ROLE[u.role]}</td></tr>))}
         </tbody></table>
       </section>
     </div>

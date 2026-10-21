@@ -5,7 +5,7 @@ import { login, register, createShop, addAsset, requestLease, type FormState } f
 import { CATEGORIES, BILLING } from "@/lib/domain";
 
 function Err({ s }: { s: FormState }) {
-  return s?.error ? <p className="text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{s.error}</p> : null;
+  return s?.error ? <p className="text-sm text-danger bg-danger/10 rounded-lg px-3 py-2">{s.error}</p> : null;
 }
 function F({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="label">{label}</span>{children}</label>;
@@ -20,7 +20,7 @@ export function LoginForm() {
       <F label="รหัสผ่าน"><input name="password" type="password" required className="input" /></F>
       <Err s={st} />
       <button className="btn w-full" disabled={pending}>{pending ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}</button>
-      <p className="text-sm text-slate-400 text-center">ยังไม่มีบัญชี? <Link href="/register" className="text-brand">สมัครสมาชิก</Link></p>
+      <p className="text-sm text-muted text-center">ยังไม่มีบัญชี? <Link href="/register" className="text-brand-ink">สมัครสมาชิก</Link></p>
     </form>
   );
 }

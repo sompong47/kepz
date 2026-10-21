@@ -3,8 +3,8 @@ import { STATE_CLASS, STATE_LABEL, type AssetState } from "@/lib/domain";
 export function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: "warn" | "ok" }) {
   return (
     <div className="card !p-4">
-      <div className={`text-3xl font-bold ${tone === "warn" ? "text-amber-400" : tone === "ok" ? "text-emerald-400" : ""}`}>{value}</div>
-      <div className="text-sm text-slate-400 mt-1">{label}</div>
+      <div className={`text-3xl font-bold ${tone === "warn" ? "text-warn" : tone === "ok" ? "text-ok" : ""}`}>{value}</div>
+      <div className="text-sm text-muted mt-1">{label}</div>
     </div>
   );
 }
@@ -15,7 +15,7 @@ export function StateBadge({ state }: { state: AssetState }) {
 
 export function Legend() {
   return (
-    <div className="flex flex-wrap gap-3 text-xs text-slate-400">
+    <div className="flex flex-wrap gap-3 text-xs text-muted">
       {(Object.keys(STATE_LABEL) as AssetState[]).map((k) => (
         <span key={k} className="flex items-center gap-1.5">
           <i className={`inline-block size-2.5 rounded-full ${STATE_CLASS[k].split(" ")[0]}`} />

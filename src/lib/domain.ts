@@ -42,10 +42,10 @@ export function assetState(leases: { status: string; endDate: Date; startDate: D
 }
 export const STATE_LABEL: Record<AssetState, string> = { VACANT: "ว่าง", OCCUPIED: "มีผู้เช่า", EXPIRING: "ใกล้หมดสัญญา", PENDING: "รออนุมัติ" };
 export const STATE_CLASS: Record<AssetState, string> = {
-  VACANT: "bg-slate-600 text-slate-200",
-  OCCUPIED: "bg-brand text-black",
-  EXPIRING: "bg-amber-500/90 text-black",
-  PENDING: "bg-sky-500/80 text-black",
+  VACANT: "bg-[#e5e5e5] text-ink2",
+  OCCUPIED: "bg-brand text-ink",
+  EXPIRING: "bg-orange-400 text-ink",
+  PENDING: "bg-sky-400 text-ink",
 };
 
 /* ---------- ผัง (floor plan) ---------- */
