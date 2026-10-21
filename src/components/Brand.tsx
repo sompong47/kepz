@@ -1,29 +1,32 @@
-/** โลโก้ + ไอคอนตาม Brand Guide (แว่นขยายสีเหลืองพร้อมเส้นความเร็ว) */
-
-export function LogoMark({ size = 36 }: { size?: number }) {
+/**
+ * โลโก้ KEPZ: ตัว K เส้นหนาปลายมน + ช่องสี่เหลี่ยมสีขาวในร่องของ K = "พื้นที่ว่างให้เช่า"
+ * onBrand = ใช้บนพื้นเหลือง (กรอบดำ ตัว K เหลือง)
+ */
+export function LogoMark({ size = 36, onBrand = false }: { size?: number; onBrand?: boolean }) {
+  const tile = onBrand ? "#111111" : "#FFC700", ink = onBrand ? "#FFC700" : "#111111";
   return (
-    <svg width={size * 1.35} height={size} viewBox="0 0 54 40" aria-hidden>
-      <g stroke="#111" strokeWidth="3.2" strokeLinecap="round">
-        <line x1="3" y1="13" x2="11" y2="13" />
-        <line x1="1" y1="19" x2="11" y2="19" />
-        <line x1="5" y1="25" x2="11" y2="25" />
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden>
+      <rect width="48" height="48" rx="12" fill={tile} />
+      <g stroke={ink} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" fill="none">
+        <path d="M14 12v24" />
+        <path d="M34 12 21.5 24 34 36" />
       </g>
-      <line x1="40" y1="30" x2="50" y2="38" stroke="#111" strokeWidth="5" strokeLinecap="round" />
-      <circle cx="29" cy="19" r="14" fill="#FFC700" stroke="#111" strokeWidth="4" />
-      {/* กล่อง/ห้องเก็บของ */}
-      <path d="M22 17.5 29 14l7 3.5v7L29 28l-7-3.5z" fill="#fff" stroke="#111" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M22 17.5 29 21l7-3.5M29 21v7" fill="none" stroke="#111" strokeWidth="1.6" strokeLinejoin="round" />
+      <rect x="30" y="20.5" width="7" height="7" rx="1.8" fill="#fff" />
     </svg>
   );
 }
 
-export function Wordmark({ tagline = false }: { tagline?: boolean }) {
+/** โลโก้เต็ม: สัญลักษณ์ + "kepz" ตัวเล็ก ปิดท้ายด้วยจุดสี่เหลี่ยม (= ช่องบนผัง) */
+export function Wordmark({ tagline = false, onBrand = false, mark = true, size = 30 }: { tagline?: boolean; onBrand?: boolean; mark?: boolean; size?: number }) {
   return (
-    <span className="flex items-center gap-2">
-      <LogoMark size={30} />
+    <span className="inline-flex items-center gap-2.5">
+      {mark && <LogoMark size={size} onBrand={onBrand} />}
       <span className="leading-none">
-        <span className="block text-2xl font-bold tracking-[0.08em] text-ink">KEPZ</span>
-        {tagline && <span className="block text-[9px] font-medium tracking-[0.2em] text-ink2">RENTAL SPACE PLATFORM</span>}
+        <span className="flex items-end font-bold tracking-tight text-ink" style={{ fontSize: size * 0.9 }}>
+          kepz
+          <i className={`inline-block rounded-[2px] ml-0.5 ${onBrand ? "bg-ink" : "bg-brand"}`} style={{ width: size * 0.2, height: size * 0.2, marginBottom: size * 0.12 }} />
+        </span>
+        {tagline && <span className="block font-medium tracking-[0.22em] text-ink2 mt-1" style={{ fontSize: Math.max(8, size * 0.28) }}>RENTAL SPACE PLATFORM</span>}
       </span>
     </span>
   );

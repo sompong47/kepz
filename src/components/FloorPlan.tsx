@@ -1,5 +1,5 @@
 "use client";
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useActionState, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import {
   addShape, saveLayout, updateAsset, duplicateAsset, markPaid, pasteItems,
   addFeature, saveFeature, setFeatureColor, duplicateFeature, deleteItems, addFloor, updateFloor, deleteFloor, generateLayout,
@@ -29,6 +29,7 @@ type Op =
   | { t: "delete"; snaps: Snap[] }
   | { t: "color"; before: [string, string | null][]; after: [string, string | null][] };
 const HISTORY_MAX = 50;
+const ZOOM_MIN = 0.5, ZOOM_MAX = 8;
 /** โหมดแก้ไข: "plan" = วาดโครงสถานที่ (ผนัง ทางเดิน โซน ฯลฯ), "units" = วางพื้นที่เช่าลงบนผัง */
 type Layer = "plan" | "units";
 const GLYPH: Record<FeatureKind, string> = { ZONE: "⬚", ROAD: "═", WALL: "▬", ENTRANCE: "⇆", STAIRS: "☰", TOILET: "🚻", OFFICE: "▣", TEXT: "T" };
@@ -126,7 +127,14 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   const [layer, setLayerState] = useState<Layer>(features.length ? "units" : "plan");
   const [gen, setGen] = useState(false);
   const [saving, setSaving] = useState<"" | "saving" | "saved">("");
-  const [scale, setScale] = useState(1);
+  // fit = ย่อให้พอดีความกว้างกล่อง; zoom = ซูมเพิ่มจากจุดนั้น (1 = พอดี)
+  const [fit, setFit] = useState(1);
+  const [zoom, setZoom] = useState(1);
+  const scale = fit * zoom;
+  const pendingScroll = useRef<{ left: number; top: number } | null>(null);
+  const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const spaceDown = useRef(false);
+  const [panning, setPanning] = useState(false);
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
@@ -142,10 +150,53 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setScale(Math.min(1, el.clientWidth / W)));
+    const ro = new ResizeObserver(() => setFit(Math.min(1, el.clientWidth / W)));
     ro.observe(el);
     return () => ro.disconnect();
   }, [W]);
+
+  /** ซูมโดยตรึงจุดใต้เมาส์ (หรือกึ่งกลางกล่อง) ไว้กับที่ */
+  const zoomTo = (z: number, clientX?: number, clientY?: number) => {
+    const el = wrap.current;
+    const nz = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+    if (!el || nz === zoom) return;
+    const r = el.getBoundingClientRect();
+    const px = (clientX ?? r.left + el.clientWidth / 2) - r.left, py = (clientY ?? r.top + el.clientHeight / 2) - r.top;
+    const cx = (el.scrollLeft + px) / scale, cy = (el.scrollTop + py) / scale;
+    pendingScroll.current = { left: cx * fit * nz - px, top: cy * fit * nz - py };
+    setZoom(nz);
+  };
+  useLayoutEffect(() => {
+    const el = wrap.current, s = pendingScroll.current;
+    if (el && s) { el.scrollLeft = s.left; el.scrollTop = s.top; pendingScroll.current = null; }
+  }, [zoom]);
+  // Ctrl + ล้อเมาส์ / pinch บนทัชแพด = ซูม (ต้อง passive: false เพื่อกันเบราว์เซอร์ซูมทั้งหน้า)
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomTo(zoom * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  });
+  // Space ค้าง = เลื่อนผัง · + / − / 0 = ซูมเข้า/ออก/พอดี (ใช้ e.code จึงใช้ได้กับแป้นไทย)
+  useEffect(() => {
+    const typing = (e: KeyboardEvent) => ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement).tagName);
+    const onDown = (e: KeyboardEvent) => {
+      if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.code === "Space") { e.preventDefault(); spaceDown.current = true; setPanning(true); }
+      else if (e.code === "Equal" || e.code === "NumpadAdd") zoomTo(zoom * 1.25);
+      else if (e.code === "Minus" || e.code === "NumpadSubtract") zoomTo(zoom / 1.25);
+      else if (e.code === "Digit0" || e.code === "Numpad0") zoomTo(1);
+    };
+    const onUp = (e: KeyboardEvent) => { if (e.code === "Space") { spaceDown.current = false; setPanning(false); } };
+    window.addEventListener("keydown", onDown);
+    window.addEventListener("keyup", onUp);
+    return () => { window.removeEventListener("keydown", onDown); window.removeEventListener("keyup", onUp); };
+  });
 
   const isAsset = (id: string) => items.some((a) => a.id === id);
   const boxOf = (id: string): Box | undefined => items.find((a) => a.id === id) ?? feats.find((f) => f.id === id);
@@ -197,6 +248,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
 
   const down = (e: React.PointerEvent, id: string, b: Box, mode: Mode) => {
     if (edit && !inLayer(id)) return;
+    if (e.button !== 0 || spaceDown.current) return; // ปล่อยให้พื้นผังจัดการเลื่อนผัง
     e.stopPropagation();
     setGen(false);
     // Shift/Ctrl + คลิก = เพิ่ม/เอาออกจากกลุ่มที่เลือก
@@ -219,7 +271,17 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   };
   // ลากบนพื้นที่ว่าง = ตีกรอบเลือกหลายชิ้น
   const bgDown = (e: React.PointerEvent) => {
-    if (!edit || e.button !== 0) return setSel(null);
+    // ปุ่มกลาง / Space ค้าง / นอกโหมดแก้ไข = ลากเพื่อเลื่อนผัง
+    if (e.button === 1 || spaceDown.current || (!edit && e.button === 0)) {
+      e.preventDefault();
+      if (!edit) setSel(null);
+      const el = wrap.current!;
+      pan.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setPanning(true);
+      return;
+    }
+    if (e.button !== 0) return setSel(null);
     const p = toCanvas(e);
     e.currentTarget.setPointerCapture(e.pointerId);
     const add = e.shiftKey || e.ctrlKey || e.metaKey;
@@ -230,6 +292,12 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   };
 
   const move = (e: React.PointerEvent) => {
+    if (pan.current) {
+      const el = wrap.current!;
+      el.scrollLeft = pan.current.left - (e.clientX - pan.current.x);
+      el.scrollTop = pan.current.top - (e.clientY - pan.current.y);
+      return;
+    }
     const m = marq.current;
     if (m) {
       const p = toCanvas(e);
@@ -264,6 +332,11 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     patchMany(d.last);
   };
   const up = () => {
+    if (pan.current) {
+      pan.current = null;
+      if (!spaceDown.current) setPanning(false);
+      return;
+    }
     if (marq.current) {
       const add = marq.current.add;
       marq.current = null;
@@ -385,13 +458,19 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     applyColors(fs.map((f) => [f.id, color]));
     record({ t: "color", before: fs.map((f) => [f.id, f.color]), after: fs.map((f) => [f.id, color]) });
   };
+  const [note, setNote] = useState("");
+  const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** ข้อความแจ้งสั้น ๆ หลังคัดลอก/วาง */
+  const flash = (msg: string) => { setNote(msg); clearTimeout(noteTimer.current); noteTimer.current = setTimeout(() => setNote(""), 2500); };
   const copySelected = () => {
     clipboard = selIds.map(snapOf).filter((s): s is Snap => !!s);
+    flash(`คัดลอก ${clipboard.length} รายการแล้ว — กด Ctrl+V เพื่อวาง`);
     pasteCount = 0;
     setSaving("");
   };
   const paste = () => {
-    if (!clipboard.length || !floor || busy.current) return;
+    if (!clipboard.length) return flash("ยังไม่ได้คัดลอกอะไร — เลือกแล้วกด Ctrl+C ก่อน");
+    if (!floor || busy.current) return;
     // วางชั้นเดียวกัน = เยื้องทีละ 1 ม.; ต่างชั้น = ตำแหน่งเดิม
     const off = clipboard.every((s) => s.floorId === floor.id) ? ++pasteCount * 20 : 0;
     const snaps = clipboard.map((s) => ({ ...s, floorId: floor.id, x: s.x + off, y: s.y + off }));
@@ -399,7 +478,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     start(async () => {
       try {
         const ids = (await pasteItems(shopId, snaps, false)).filter((i): i is string => !!i);
-        if (ids.length) { record({ t: "create", ids }); setSelIds(ids); }
+        if (ids.length) { record({ t: "create", ids }); setSelIds(ids); flash(`วาง ${ids.length} รายการแล้ว`); }
       } finally { busy.current = false; }
     });
   };
@@ -410,7 +489,8 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      const ctrl = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+      // ใช้ตำแหน่งปุ่ม (e.code) ไม่ใช่ตัวอักษร เพื่อให้คีย์ลัดใช้ได้แม้เปิดแป้นภาษาไทย (Ctrl+C บนแป้นไทยได้ "แ")
+      const ctrl = e.ctrlKey || e.metaKey, k = e.code.startsWith("Key") ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
       if (ctrl && k === "a") {
         e.preventDefault();
         return setSelIds((layer === "units" ? onFloor : fOnFloor).map((b) => b.id));
@@ -441,7 +521,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     setSaving("saving");
     saveLayout(shopId, a.id, { ...a, shape }).then(() => setSaving("saved"));
   };
-  const switchFloor = (id: string) => { setFloorId(id); setSel(null); setGen(false); };
+  const switchFloor = (id: string) => { setFloorId(id); setSel(null); setGen(false); setZoom(1); };
   const setLayer = (l: Layer) => { setLayerState(l); setSelIds([]); setGen(false); };
   const inLayer = (id: string) => (layer === "units") === isAsset(id);
 
@@ -556,12 +636,15 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             {layer === "plan" ? `วาดโครงสถานที่ก่อน (${unit}จะจางและล็อกไว้)` : "วางพื้นที่เช่าบนผัง (ผังถูกล็อก ลากผ่านได้โดยไม่ขยับผนัง/โซน)"}
             {" · "}ลากย้าย · ลากมุมปรับขนาด · จุดเหลืองหมุน (R = 90°) · ลากที่ว่างเลือกหลายชิ้น · Delete ลบ · Ctrl+C/X/V · Ctrl+Z/Y
             {saving === "saving" ? " · กำลังบันทึก…" : saving === "saved" ? " · บันทึกแล้ว ✓" : ""}
+            {note && <span className="ml-2 rounded-full bg-ink px-2.5 py-0.5 text-white">{note}</span>}
           </p>
         </div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <div ref={wrap} className="rounded-2xl border border-line overflow-hidden bg-white" style={{ height: H * scale }}>
+        <div className="relative min-w-0">
+        <div ref={wrap} className={`rounded-2xl border border-line overflow-auto bg-white ${panning ? "cursor-grab active:cursor-grabbing" : ""}`} style={{ height: H * fit }}>
+          <div style={{ width: W * scale, height: H * scale }}>
           <div
             ref={canvas}
             onPointerDown={bgDown}
@@ -600,6 +683,16 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
               <p className="absolute inset-0 grid place-items-center text-muted">{!editable ? "ยังไม่มีผัง" : !edit ? "กด “แก้ไขผัง” เพื่อเริ่ม" : layer === "plan" ? "เริ่มจากวาดผนัง ทางเดิน หรือโซน จากแถบด้านบน" : `เพิ่ม${unit} หรือใช้ “วาง${unit}อัตโนมัติ”`}</p>
             )}
           </div>
+          </div>
+        </div>
+        {/* ปุ่มซูม */}
+        <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-xl border border-line bg-panel/95 p-1 shadow-sm">
+          <button className="size-8 rounded-lg hover:bg-panel2 cursor-pointer text-lg leading-none disabled:opacity-30" title="ซูมออก (−)" disabled={zoom <= ZOOM_MIN} onClick={() => zoomTo(zoom / 1.25)}>−</button>
+          <button className="min-w-14 h-8 rounded-lg hover:bg-panel2 cursor-pointer text-xs font-medium tabular-nums" title="พอดีกรอบ (0)" onClick={() => zoomTo(1)}>{Math.round(zoom * 100)}%</button>
+          <button className="size-8 rounded-lg hover:bg-panel2 cursor-pointer text-lg leading-none disabled:opacity-30" title="ซูมเข้า (+)" disabled={zoom >= ZOOM_MAX} onClick={() => zoomTo(zoom * 1.25)}>+</button>
+          <button className="h-8 px-2 rounded-lg hover:bg-panel2 cursor-pointer text-xs" title="พอดีกรอบ" onClick={() => zoomTo(1)}>⤢ พอดี</button>
+        </div>
+        {zoom !== 1 && <div className="absolute bottom-3 left-3 rounded-lg bg-ink/80 px-2 py-1 text-[11px] text-white pointer-events-none">Ctrl+ล้อเมาส์ ซูม · Space+ลาก / ปุ่มกลางเมาส์ เลื่อนผัง</div>}
         </div>
 
         {gen && floor ? (

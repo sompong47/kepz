@@ -2,7 +2,7 @@ import Link from "next/link";
 import { and, eq } from "drizzle-orm";
 import { db, shops } from "@/db";
 import { CATEGORIES, type Category } from "@/lib/domain";
-import { IconBadge, LogoMark, type IconName } from "@/components/Brand";
+import { IconBadge, LogoMark, Wordmark, type IconName } from "@/components/Brand";
 import ShopCard from "@/components/ShopCard";
 import { getUser } from "@/lib/auth";
 
@@ -40,9 +40,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
         </div>
         <div className="hidden lg:grid place-items-center rounded-3xl bg-brand aspect-[4/3] shadow-[0_20px_40px_-20px_rgba(17,17,17,.35)]">
           <div className="text-center">
-            <div className="flex justify-center"><LogoMark size={110} /></div>
-            <div className="mt-4 text-4xl font-bold tracking-[0.12em]">KEPZ</div>
-            <div className="text-xs font-medium tracking-[0.25em] text-ink2">RENTAL SPACE PLATFORM</div>
+            <div className="flex justify-center"><LogoMark size={120} onBrand /></div>
+            <div className="mt-6"><Wordmark size={44} onBrand tagline mark={false} /></div>
           </div>
         </div>
       </section>

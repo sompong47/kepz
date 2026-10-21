@@ -1,4 +1,4 @@
-import { Icon, type IconName } from "./Brand";
+import { Icon, Wordmark, type IconName } from "./Brand";
 
 const POINTS: [IconName, string, string][] = [
   ["shield", "ปลอดภัย มั่นใจ", "ตรวจสอบตัวตนและข้อมูล"],
@@ -17,8 +17,8 @@ export default function Footer() {
           </div>
         ))}
         <div className="lg:text-right">
-          <div className="text-2xl font-bold tracking-[0.12em]">KEPZ</div>
-          <div className="text-xs font-medium tracking-[0.2em]">YOUR SPACE, YOUR RENTAL.</div>
+          <Wordmark size={30} onBrand />
+          <div className="text-xs font-medium tracking-[0.2em] mt-1.5">YOUR SPACE, YOUR RENTAL.</div>
         </div>
       </div>
     </footer>
