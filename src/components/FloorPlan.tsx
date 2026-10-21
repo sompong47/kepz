@@ -2,7 +2,7 @@
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import {
   addShape, saveLayout, updateAsset, duplicateAsset, markPaid, pasteItems,
-  addFeature, saveFeature, duplicateFeature, deleteItems, addFloor, updateFloor, deleteFloor, generateLayout,
+  addFeature, saveFeature, setFeatureColor, duplicateFeature, deleteItems, addFloor, updateFloor, deleteFloor, generateLayout,
 } from "@/lib/actions";
 import {
   BILLING, CANVAS, FEATURES, LAYOUT_PRESET, MIN_ASSET_PX, areaText, dimText, toM, toPx, PERIOD, STATE_CLASS, STATE_LABEL, baht, fmtDate,
@@ -19,14 +19,18 @@ type Box = Rect & { rot: number };
 /** สแนปช็อตของห้อง/องค์ประกอบ ใช้ทั้งคัดลอก-วาง และเลิกทำ */
 type Snap = Box & { id: string; floorId: string } & (
   | { t: "A"; code: string; size: string | null; price: number; period: "DAY" | "MONTH"; note: string | null; shape: "RECT" | "CIRCLE"; photos?: { file: string }[] }
-  | { t: "F"; kind: FeatureKind; label: string | null }
+  | { t: "F"; kind: FeatureKind; label: string | null; color?: string | null }
 );
 /** ประวัติสำหรับ Ctrl+Z / Ctrl+Y; id ในประวัติอาจถูกแทนด้วย id ใหม่หลังกู้คืน (ดู alias) */
 type Op =
   | { t: "layout"; before: [string, Box][]; after: [string, Box][] }
   | { t: "create"; ids: string[]; snaps?: Snap[] }
-  | { t: "delete"; snaps: Snap[] };
+  | { t: "delete"; snaps: Snap[] }
+  | { t: "color"; before: [string, string | null][]; after: [string, string | null][] };
 const HISTORY_MAX = 50;
+/** โหมดแก้ไข: "plan" = วาดโครงสถานที่ (ผนัง ทางเดิน โซน ฯลฯ), "units" = วางพื้นที่เช่าลงบนผัง */
+type Layer = "plan" | "units";
+const GLYPH: Record<FeatureKind, string> = { ZONE: "⬚", ROAD: "═", WALL: "▬", ENTRANCE: "⇆", STAIRS: "☰", TOILET: "🚻", OFFICE: "▣", TEXT: "T" };
 // คลิปบอร์ดอยู่ระดับโมดูล จึงคัดลอกจากชั้นหนึ่งไปวางอีกชั้นได้
 let clipboard: Snap[] = [];
 let pasteCount = 0;
@@ -43,32 +47,65 @@ function aabb(b: Box): Rect {
 const upright = (rot: number) => (rot > 90 && rot <= 270 ? "rotate(180deg)" : undefined);
 const FILL: Record<AssetState, string> = { VACANT: "#e5e5e5", OCCUPIED: "#ffc700", EXPIRING: "#fb923c", PENDING: "#38bdf8" };
 
-/** หน้าตาขององค์ประกอบผังแต่ละชนิด */
+/** สีให้เลือกสำหรับองค์ประกอบผัง */
+const PALETTE = ["#ffc700", "#f97316", "#dc2626", "#db2777", "#9333ea", "#2563eb", "#0284c7", "#0d9488", "#16a34a", "#a16207", "#757575", "#111111"];
+const alpha = (hex: string, a: number) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
+/** สีตัวอักษรบนพื้นสีนั้น ๆ (ดำหรือขาว ตามความสว่าง) */
+const inkOn = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#111" : "#fff";
+};
+
+/** หน้าตาขององค์ประกอบผังแต่ละชนิด (ถ้าตั้งสีเองจะใช้สีนั้นแทนสีตั้งต้น) */
 function featureLook(f: FPFeature): { style: React.CSSProperties; text: string | null } {
   const name = f.label ?? FEATURES[f.kind].label;
   const horiz = f.w >= f.h;
+  const c = f.color;
+  if (c) {
+    switch (f.kind) {
+      case "ZONE":
+        return { style: { border: `2px dashed ${c}`, backgroundColor: alpha(c, 0.1), borderRadius: 12, alignItems: "flex-start", justifyContent: "flex-start", padding: 6, color: "#111", fontSize: 13 }, text: name };
+      case "ROAD":
+        return {
+          style: {
+            backgroundColor: c, color: inkOn(c), fontSize: 12,
+            backgroundImage: `repeating-linear-gradient(${horiz ? "90deg" : "180deg"}, rgba(255,255,255,.85) 0 14px, transparent 14px 28px)`,
+            backgroundSize: horiz ? "100% 2px" : "2px 100%", backgroundPosition: "center", backgroundRepeat: "no-repeat",
+          },
+          text: f.label,
+        };
+      case "WALL":
+        return { style: { backgroundColor: c, borderRadius: 2 }, text: null };
+      case "STAIRS":
+        return { style: { backgroundImage: `repeating-linear-gradient(0deg,${alpha(c, 0.15)} 0 8px,${alpha(c, 0.6)} 8px 10px)`, border: `1px solid ${c}`, borderRadius: 6, color: "#111", fontSize: 12 }, text: name };
+      case "TEXT":
+        return { style: { color: c, fontWeight: 700, fontSize: Math.max(11, Math.min(48, f.h * 0.6)), whiteSpace: "nowrap" }, text: name };
+      default: // ENTRANCE / TOILET / OFFICE
+        return { style: { backgroundColor: alpha(c, 0.18), border: `2px solid ${c}`, borderRadius: 8, color: "#111", fontSize: 12, fontWeight: 600 }, text: f.kind === "ENTRANCE" ? `⇆ ${name}` : f.kind === "TOILET" ? `🚻 ${name}` : name };
+    }
+  }
   switch (f.kind) {
     case "ZONE":
-      return { style: { border: "2px dashed #bdbdbd", background: "rgba(255,199,0,.06)", borderRadius: 12, alignItems: "flex-start", justifyContent: "flex-start", padding: 6, color: "#333", fontSize: 13 }, text: name };
+      return { style: { border: "2px dashed #bdbdbd", backgroundColor: "rgba(255,199,0,.06)", borderRadius: 12, alignItems: "flex-start", justifyContent: "flex-start", padding: 6, color: "#333", fontSize: 13 }, text: name };
     case "ROAD":
       return {
         style: {
-          background: "#dcdad2", color: "#555", fontSize: 12,
+          backgroundColor: "#dcdad2", color: "#555", fontSize: 12,
           backgroundImage: `repeating-linear-gradient(${horiz ? "90deg" : "180deg"}, #ffffff 0 14px, transparent 14px 28px)`,
           backgroundSize: horiz ? "100% 2px" : "2px 100%", backgroundPosition: "center", backgroundRepeat: "no-repeat",
         },
         text: f.label,
       };
     case "WALL":
-      return { style: { background: "#333333", borderRadius: 2 }, text: null };
+      return { style: { backgroundColor: "#333333", borderRadius: 2 }, text: null };
     case "ENTRANCE":
-      return { style: { background: "#dcfce7", border: "2px solid #16a34a", borderRadius: 8, color: "#166534", fontSize: 12, fontWeight: 600 }, text: `⇆ ${name}` };
+      return { style: { backgroundColor: "#dcfce7", border: "2px solid #16a34a", borderRadius: 8, color: "#166534", fontSize: 12, fontWeight: 600 }, text: `⇆ ${name}` };
     case "STAIRS":
-      return { style: { background: "repeating-linear-gradient(0deg,#f1f1f1 0 8px,#c8c8c8 8px 10px)", border: "1px solid #bdbdbd", borderRadius: 6, color: "#333", fontSize: 12 }, text: name };
+      return { style: { backgroundImage: "repeating-linear-gradient(0deg,#f1f1f1 0 8px,#c8c8c8 8px 10px)", border: "1px solid #bdbdbd", borderRadius: 6, color: "#333", fontSize: 12 }, text: name };
     case "TOILET":
-      return { style: { background: "#e0f2fe", border: "2px solid #0284c7", borderRadius: 8, color: "#075985", fontSize: 12 }, text: `🚻 ${name}` };
+      return { style: { backgroundColor: "#e0f2fe", border: "2px solid #0284c7", borderRadius: 8, color: "#075985", fontSize: 12 }, text: `🚻 ${name}` };
     case "OFFICE":
-      return { style: { background: "#f6f4ec", border: "2px solid #757575", borderRadius: 8, color: "#111", fontSize: 12 }, text: name };
+      return { style: { backgroundColor: "#f6f4ec", border: "2px solid #757575", borderRadius: 8, color: "#111", fontSize: 12 }, text: name };
     case "TEXT":
       return { style: { color: "#111", fontWeight: 700, fontSize: Math.max(11, Math.min(48, f.h * 0.6)), whiteSpace: "nowrap" }, text: name };
   }
@@ -84,6 +121,8 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   const sel = selIds.length === 1 ? selIds[0] : null;
   const setSel = (id: string | null) => setSelIds(id ? [id] : []);
   const [edit, setEdit] = useState(false);
+  // ผังว่าง → เริ่มที่สร้างผังก่อน; มีผังแล้ว → เริ่มที่วางพื้นที่เช่า
+  const [layer, setLayerState] = useState<Layer>(features.length ? "units" : "plan");
   const [gen, setGen] = useState(false);
   const [saving, setSaving] = useState<"" | "saving" | "saved">("");
   const [scale, setScale] = useState(1);
@@ -156,6 +195,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   const rotateTo = (id: string, deg: number) => { const g = groupOf([id]); if (g.length) commitLayout(g, new Map([[id, clampIn({ ...g[0].o, rot: norm(deg) })]])); };
 
   const down = (e: React.PointerEvent, id: string, b: Box, mode: Mode) => {
+    if (edit && !inLayer(id)) return;
     e.stopPropagation();
     setGen(false);
     // Shift/Ctrl + คลิก = เพิ่ม/เอาออกจากกลุ่มที่เลือก
@@ -232,7 +272,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
       const hit = (o: Box) => { const b = aabb(o); return b.x < r.x + r.w && b.x + b.w > r.x && b.y < r.y + r.h && b.y + b.h > r.y; };
       // โซน/ทางเดินมักกว้างกว่าห้อง จึงต้องอยู่ในกรอบทั้งชิ้นถึงจะถูกเลือก
       const inside = (o: Box) => { const b = aabb(o); return b.x >= r.x && b.x + b.w <= r.x + r.w && b.y >= r.y && b.y + b.h <= r.y + r.h; };
-      const ids = [...onFloor.filter(hit), ...fOnFloor.filter((f) => (FEATURES[f.kind].back ? inside(f) : hit(f)))].map((b) => b.id);
+      const ids = (layer === "units" ? onFloor.filter(hit) : fOnFloor.filter((f) => (FEATURES[f.kind].back ? inside(f) : hit(f)))).map((b) => b.id);
       setSelIds((l) => (add ? [...new Set([...l, ...ids])] : ids));
       return;
     }
@@ -265,7 +305,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     const a = items.find((x) => x.id === id);
     if (a) return { t: "A", id, floorId: a.floorId, x: a.x, y: a.y, w: a.w, h: a.h, rot: a.rot, code: a.code, size: a.size, price: a.price, period: a.period, note: a.note, shape: a.shape };
     const f = feats.find((x) => x.id === id);
-    return f ? { t: "F", id, floorId: f.floorId, x: f.x, y: f.y, w: f.w, h: f.h, rot: f.rot, kind: f.kind, label: f.label } : null;
+    return f ? { t: "F", id, floorId: f.floorId, x: f.x, y: f.y, w: f.w, h: f.h, rot: f.rot, kind: f.kind, label: f.label, color: f.color } : null;
   };
   /** ลบ แล้วคืนสแนปช็อตของที่ลบจริง (ห้องที่มีผู้เช่าจะถูกข้าม) */
   const removeIds = async (ids: string[]) => {
@@ -297,6 +337,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     start(async () => {
       try {
         if (op.t === "layout") applyLayout(dir === "undo" ? op.before : op.after);
+        else if (op.t === "color") applyColors(dir === "undo" ? op.before : op.after);
         // create ย้อน = ลบ, ทำซ้ำ = กู้คืน; delete กลับกัน
         else if ((op.t === "create") === (dir === "undo")) {
           const ids = op.t === "create" ? op.ids : op.snaps.map((s) => s.id);
@@ -328,6 +369,21 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     });
   };
   const removeSelected = () => removeWithUndo(selIds);
+  const applyColors = (pairs: [string, string | null][]) => {
+    const m = new Map(pairs.map(([id, c]) => [resolve(id), c] as const));
+    setFeats((l) => l.map((f) => (m.has(f.id) ? { ...f, color: m.get(f.id)! } : f)));
+    const groups = new Map<string | null, string[]>();
+    for (const [id, c] of m) groups.set(c, [...(groups.get(c) ?? []), id]);
+    setSaving("saving");
+    Promise.all([...groups].map(([c, ids]) => setFeatureColor(shopId, ids, c))).then(() => setSaving("saved"));
+  };
+  /** เปลี่ยนสีองค์ประกอบผังที่เลือก (ห้องเช่าใช้สีตามสถานะ จึงไม่เปลี่ยน) */
+  const setColor = (ids: string[], color: string | null) => {
+    const fs = feats.filter((f) => ids.includes(f.id));
+    if (!fs.length) return;
+    applyColors(fs.map((f) => [f.id, color]));
+    record({ t: "color", before: fs.map((f) => [f.id, f.color]), after: fs.map((f) => [f.id, color]) });
+  };
   const copySelected = () => {
     clipboard = selIds.map(snapOf).filter((s): s is Snap => !!s);
     pasteCount = 0;
@@ -356,7 +412,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
       const ctrl = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
       if (ctrl && k === "a") {
         e.preventDefault();
-        return setSelIds([...onFloor, ...fOnFloor].map((b) => b.id));
+        return setSelIds((layer === "units" ? onFloor : fOnFloor).map((b) => b.id));
       }
       if (ctrl && k === "z") { e.preventDefault(); return historyStep(e.shiftKey ? "redo" : "undo"); }
       if (ctrl && k === "y") { e.preventDefault(); return historyStep("redo"); }
@@ -385,6 +441,8 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     saveLayout(shopId, a.id, { ...a, shape }).then(() => setSaving("saved"));
   };
   const switchFloor = (id: string) => { setFloorId(id); setSel(null); setGen(false); };
+  const setLayer = (l: Layer) => { setLayerState(l); setSelIds([]); setGen(false); };
+  const inLayer = (id: string) => (layer === "units") === isAsset(id);
 
   const onFloor = items.filter((a) => a.floorId === floor?.id);
   const fOnFloor = feats.filter((f) => f.floorId === floor?.id);
@@ -420,7 +478,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
         key={f.id}
         onPointerDown={(e) => down(e, f.id, f, "move")}
         className={`absolute flex items-center justify-center text-center leading-tight overflow-visible ${edit ? "cursor-move" : ""}`}
-        style={{ left: f.x, top: f.y, width: f.w, height: f.h, transform: f.rot ? `rotate(${f.rot}deg)` : undefined, pointerEvents: edit ? "auto" : "none", outline: selIds.includes(f.id) ? "3px solid #111" : "none", outlineOffset: 2, ...style }}
+        style={{ left: f.x, top: f.y, width: f.w, height: f.h, transform: f.rot ? `rotate(${f.rot}deg)` : undefined, pointerEvents: edit && layer === "plan" ? "auto" : "none", outline: selIds.includes(f.id) ? "3px solid #111" : "none", outlineOffset: 2, ...style }}
       >
         {text && <span className="pointer-events-none" style={{ transform: upright(f.rot) }}>{text}</span>}
         {handles(f.id, f)}
@@ -442,20 +500,23 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
       <div className="flex flex-wrap items-center gap-2">
         {editable && (
           <>
-            <button className={edit ? "btn" : "btn-ghost"} onClick={() => { setEdit(!edit); setGen(false); }}>{edit ? "✓ เสร็จสิ้นการแก้ไขผัง" : "✎ แก้ไขผัง"}</button>
-            {edit && floor && (
+            {!edit ? (
+              <button className="btn" onClick={() => setEdit(true)}>✎ แก้ไขผัง</button>
+            ) : (
               <>
-                <button className="btn-ghost" onClick={() => run(() => addShape(shopId, floor.id, "RECT"))}>▭ + {unit}</button>
-                <button className="btn-ghost" onClick={() => run(() => addShape(shopId, floor.id, "CIRCLE"))}>◯ + วงกลม</button>
-                <select
-                  className="btn-ghost"
-                  value=""
-                  onChange={(e) => { const k = e.target.value as FeatureKind; if (k) run(() => addFeature(shopId, floor.id, k)); }}
-                >
-                  <option value="">+ องค์ประกอบผัง…</option>
-                  {(Object.keys(FEATURES) as FeatureKind[]).map((k) => <option key={k} value={k}>{FEATURES[k].label}</option>)}
-                </select>
-                <button className={gen ? "btn" : "btn-ghost"} onClick={() => { setGen(!gen); setSel(null); }}>⚡ สร้างผังอัตโนมัติ</button>
+                {/* สลับโหมด: วาดโครงสถานที่ ↔ วางพื้นที่เช่า */}
+                <div className="inline-flex rounded-xl border border-line bg-panel2 p-1">
+                  {([["plan", "1", "สร้างผัง"], ["units", "2", `วาง${unit}`]] as const).map(([l, n, label]) => (
+                    <button
+                      key={l}
+                      onClick={() => setLayer(l)}
+                      className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium cursor-pointer transition-colors ${layer === l ? "bg-ink text-white" : "text-ink2 hover:bg-panel"}`}
+                    >
+                      <span className={`grid place-items-center size-5 rounded-full text-xs ${layer === l ? "bg-brand text-ink" : "bg-line"}`}>{n}</span>{label}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn-dark" onClick={() => { setEdit(false); setSelIds([]); setGen(false); }}>✓ เสร็จสิ้น</button>
                 <button className="btn-ghost" title="เลิกทำ (Ctrl+Z)" disabled={!undoStack.current.length} onClick={() => historyStep("undo")}>↶</button>
                 <button className="btn-ghost" title="ทำซ้ำ (Ctrl+Y)" disabled={!redoStack.current.length} onClick={() => historyStep("redo")}>↷</button>
               </>
@@ -468,10 +529,33 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
           ))}
         </div>
       </div>
-      {edit && (
-        <p className="text-xs text-muted">
-          ลากเพื่อย้าย · ลากมุมเพื่อปรับขนาด · ลากจุดเหลืองด้านบนเพื่อหมุน (R = 90°) · ลากบนที่ว่างเพื่อเลือกหลายชิ้น · Shift/Ctrl+คลิก เลือกเพิ่ม · Delete ลบ · Ctrl+C/X/V คัดลอก/ตัด/วาง · Ctrl+Z/Y เลิกทำ/ทำซ้ำ {saving === "saving" ? "· กำลังบันทึก…" : saving === "saved" ? "· บันทึกแล้ว ✓" : ""}
-        </p>
+      {edit && floor && (
+        <div className="rounded-2xl border border-line bg-panel p-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {layer === "plan" ? (
+              <>
+                <span className="text-sm font-medium mr-1">เพิ่มองค์ประกอบผัง:</span>
+                {(Object.keys(FEATURES) as FeatureKind[]).map((k) => (
+                  <button key={k} className="btn-ghost !py-1.5" onClick={() => run(() => addFeature(shopId, floor.id, k))}>
+                    <span className="mr-1.5 w-4 text-center">{GLYPH[k]}</span>{FEATURES[k].label}
+                  </button>
+                ))}
+              </>
+            ) : (
+              <>
+                <span className="text-sm font-medium mr-1">เพิ่ม{unit}:</span>
+                <button className="btn-ghost !py-1.5" onClick={() => run(() => addShape(shopId, floor.id, "RECT"))}>▭ สี่เหลี่ยม</button>
+                <button className="btn-ghost !py-1.5" onClick={() => run(() => addShape(shopId, floor.id, "CIRCLE"))}>◯ วงกลม</button>
+                <button className={`${gen ? "btn" : "btn-ghost"} !py-1.5`} onClick={() => { setGen(!gen); setSel(null); }}>⚡ วาง{unit}อัตโนมัติ</button>
+              </>
+            )}
+          </div>
+          <p className="text-xs text-muted">
+            {layer === "plan" ? `วาดโครงสถานที่ก่อน (${unit}จะจางและล็อกไว้)` : "วางพื้นที่เช่าบนผัง (ผังถูกล็อก ลากผ่านได้โดยไม่ขยับผนัง/โซน)"}
+            {" · "}ลากย้าย · ลากมุมปรับขนาด · จุดเหลืองหมุน (R = 90°) · ลากที่ว่างเลือกหลายชิ้น · Delete ลบ · Ctrl+C/X/V · Ctrl+Z/Y
+            {saving === "saving" ? " · กำลังบันทึก…" : saving === "saved" ? " · บันทึกแล้ว ✓" : ""}
+          </p>
+        </div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
@@ -493,8 +577,9 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
               <div
                 key={a.id}
                 onPointerDown={(e) => down(e, a.id, a, "move")}
-                className={`absolute flex flex-col items-center justify-center text-black font-semibold leading-tight ${edit ? "cursor-move" : "cursor-pointer"}`}
+                className={`absolute flex flex-col items-center justify-center text-black font-semibold leading-tight transition-opacity ${edit ? "cursor-move" : "cursor-pointer"}`}
                 style={{
+                  ...(edit && layer === "plan" && { opacity: 0.25, pointerEvents: "none" }),
                   left: a.x, top: a.y, width: a.w, height: a.h, transform: a.rot ? `rotate(${a.rot}deg)` : undefined, background: FILL[a.state], borderRadius: a.shape === "CIRCLE" ? "9999px" : 10,
                   color: "#111", boxShadow: "inset 0 0 0 1px rgba(17,17,17,.12)", outline: selIds.includes(a.id) ? "3px solid #111" : "none", outlineOffset: 2,
                 }}
@@ -509,7 +594,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             {front.map(renderFeature)}
             {marquee && <div className="absolute border-2 border-brand bg-brand/10 pointer-events-none" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
             {!onFloor.length && !fOnFloor.length && (
-              <p className="absolute inset-0 grid place-items-center text-muted">{editable ? "กด “แก้ไขผัง” แล้วเพิ่มห้อง ผนัง ทางเดิน หรือใช้ “สร้างผังอัตโนมัติ”" : "ยังไม่มีผัง"}</p>
+              <p className="absolute inset-0 grid place-items-center text-muted">{!editable ? "ยังไม่มีผัง" : !edit ? "กด “แก้ไขผัง” เพื่อเริ่ม" : layer === "plan" ? "เริ่มจากวาดผนัง ทางเดิน หรือโซน จากแถบด้านบน" : `เพิ่ม${unit} หรือใช้ “วาง${unit}อัตโนมัติ”`}</p>
             )}
           </div>
         </div>
@@ -527,12 +612,15 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
               <button className="btn-ghost" onClick={() => rotateBy(selIds, -90)}>⟲ 90°</button>
               <button className="btn-ghost" onClick={() => rotateBy(selIds, 90)}>⟳ 90°</button>
               <button className="btn-ghost !text-danger" onClick={removeSelected}>ลบที่เลือกทั้งหมด</button>
+            </div>
+            {selIds.some((i) => !isAsset(i)) && <ColorPicker value={null} onChange={(c) => setColor(selIds, c)} />}
+            <div className="flex flex-wrap gap-2">
               <button className="btn-ghost" onClick={() => setSelIds([])}>ยกเลิกการเลือก</button>
             </div>
           </div>
         ) : curFeat ? (
-          <FeaturePanel key={curFeat.id} shopId={shopId} f={curFeat} onRotate={(d, abs) => (abs ? rotateTo(curFeat.id, d) : rotateBy([curFeat.id], d))} onDup={() => run(() => duplicateFeature(shopId, curFeat.id))} onRemove={() => removeWithUndo([curFeat.id])} />
-        ) : curAsset || !(editable && edit && floor) ? (
+          <FeaturePanel key={curFeat.id} shopId={shopId} f={curFeat} onColor={(c) => setColor([curFeat.id], c)} onRotate={(d, abs) => (abs ? rotateTo(curFeat.id, d) : rotateBy([curFeat.id], d))} onDup={() => run(() => duplicateFeature(shopId, curFeat.id))} onRemove={() => removeWithUndo([curFeat.id])} />
+        ) : curAsset || !(editable && edit && floor) || layer === "units" ? (
           <Panel key={curAsset?.id ?? "none"} shopId={shopId} a={curAsset} unit={unit} editable={!!editable} edit={edit} canRent={!!canRent}
             onShape={toggleShape} onRotate={(id, d, abs) => (abs ? rotateTo(id, d) : rotateBy([id], d))} onDup={(id) => run(() => duplicateAsset(shopId, id))} onRemove={(id) => removeWithUndo([id])} />
         ) : (
@@ -613,7 +701,9 @@ function Panel({ shopId, a, unit, editable, edit, canRent, onShape, onRotate, on
   );
 }
 
-function FeaturePanel({ shopId, f, onRotate, onDup, onRemove }: { shopId: string; f: FPFeature; onRotate: (deg: number, absolute?: boolean) => void; onDup: () => void; onRemove: () => void }) {
+function FeaturePanel({ shopId, f, onColor, onRotate, onDup, onRemove }: {
+  shopId: string; f: FPFeature; onColor: (c: string | null) => void; onRotate: (deg: number, absolute?: boolean) => void; onDup: () => void; onRemove: () => void;
+}) {
   const [pending, start] = useTransition();
   const [label, setLabel] = useState(f.label ?? "");
   const [kind, setKind] = useState<FeatureKind>(f.kind);
@@ -630,11 +720,41 @@ function FeaturePanel({ shopId, f, onRotate, onDup, onRemove }: { shopId: string
       <label className="block"><span className="label">ข้อความที่แสดง {f.kind !== "TEXT" && "(เว้นว่างเพื่อใช้ชื่อชนิด)"}</span>
         <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={FEATURES[kind].label} className="input" />
       </label>
+      <ColorPicker value={f.color} onChange={onColor} />
       <RotateRow rot={f.rot} onRotate={onRotate} />
       <div className="flex flex-wrap gap-2">
         <button className="btn" disabled={pending} onClick={save}>บันทึก</button>
         <button className="btn-ghost" onClick={onDup}>ทำซ้ำ</button>
         <button className="btn-ghost !text-danger" onClick={onRemove}>ลบ</button>
+      </div>
+    </div>
+  );
+}
+
+/** จานสี + เลือกสีเอง + กลับเป็นสีตั้งต้น (เปลี่ยนแล้วบันทึกทันที) */
+function ColorPicker({ value, onChange }: { value: string | null; onChange: (c: string | null) => void }) {
+  // ตัวเลือกสีเองยิง event ถี่ระหว่างลาก → รอให้หยุดก่อนค่อยบันทึก
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const pick = (c: string) => { clearTimeout(timer.current); timer.current = setTimeout(() => onChange(c), 250); };
+  return (
+    <div>
+      <span className="label">สี</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {PALETTE.map((c) => (
+          <button
+            key={c}
+            type="button"
+            title={c}
+            onClick={() => onChange(c)}
+            className={`size-7 rounded-full border border-black/10 cursor-pointer transition-transform hover:scale-110 ${value === c ? "ring-2 ring-offset-2 ring-ink" : ""}`}
+            style={{ background: c }}
+          />
+        ))}
+        <label title="เลือกสีเอง" className={`relative size-7 rounded-full border border-line cursor-pointer overflow-hidden grid place-items-center text-xs ${value && !PALETTE.includes(value) ? "ring-2 ring-offset-2 ring-ink" : ""}`}
+          style={{ background: value && !PALETTE.includes(value) ? value : "conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)" }}>
+          <input type="color" value={value ?? "#ffc700"} onChange={(e) => pick(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
+        </label>
+        <button type="button" onClick={() => onChange(null)} className={`btn-ghost !py-1 !px-2 text-xs ${value === null ? "pill-on" : ""}`}>ค่าเริ่มต้น</button>
       </div>
     </div>
   );

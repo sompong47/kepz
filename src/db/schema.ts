@@ -76,6 +76,7 @@ export const features = sqliteTable("features", {
   w: integer("w").notNull(),
   h: integer("h").notNull(),
   rot: integer("rot").notNull().default(0),
+  color: text("color"), // #rrggbb; null = สีตั้งต้นของชนิด
   floorId: text("floor_id").notNull().references(() => floors.id, { onDelete: "cascade" }),
   shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
 });

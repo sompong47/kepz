@@ -1,7 +1,7 @@
 import { assetState, defaultBox, type AssetState, type FeatureKind } from "./domain";
 
 export type FPFloor = { id: string; name: string; w: number; h: number };
-export type FPFeature = { id: string; floorId: string; kind: FeatureKind; label: string | null; x: number; y: number; w: number; h: number; rot: number };
+export type FPFeature = { id: string; floorId: string; kind: FeatureKind; label: string | null; x: number; y: number; w: number; h: number; rot: number; color: string | null };
 export type FPPayment = { id: string; amount: number; due: number; paid: number | null };
 export type FPAsset = {
   id: string; floorId: string; code: string; size: string | null; price: number; period: "DAY" | "MONTH"; note: string | null;

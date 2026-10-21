@@ -284,12 +284,23 @@ export async function saveFeature(shopId: string, id: string, v: Box & { label?:
   if (meta) revalidatePath(`/seller/shops/${shopId}`);
 }
 
+const HEX = /^#[0-9a-f]{6}$/i;
+/** เปลี่ยนสีองค์ประกอบผังหลายชิ้นพร้อมกัน; null = กลับเป็นสีตั้งต้น */
+export async function setFeatureColor(shopId: string, ids: string[], color: string | null) {
+  await ownShop(shopId);
+  if (color !== null && !HEX.test(String(color))) return;
+  const list = (Array.isArray(ids) ? ids : []).filter((i) => typeof i === "string").slice(0, 1000);
+  if (!list.length) return;
+  await db.update(features).set({ color: color && color.toLowerCase() }).where(and(eq(features.shopId, shopId), inArray(features.id, list)));
+  revalidatePath(`/seller/shops/${shopId}`);
+}
+
 export async function duplicateFeature(shopId: string, id: string) {
   await ownShop(shopId);
   const f = await db.query.features.findFirst({ where: and(eq(features.id, id), eq(features.shopId, shopId)), with: { floor: true } });
   if (!f) return null;
   const b = fit({ x: f.x + 20, y: f.y + 20, w: f.w, h: f.h, rot: f.rot }, f.floor, 10);
-  const [n] = await db.insert(features).values({ shopId, floorId: f.floorId, kind: f.kind, label: f.label, ...b }).returning();
+  const [n] = await db.insert(features).values({ shopId, floorId: f.floorId, kind: f.kind, label: f.label, color: f.color, ...b }).returning();
   revalidatePath(`/seller/shops/${shopId}`);
   return n.id;
 }
@@ -328,7 +339,7 @@ const snapSchema = z.array(z.discriminatedUnion("t", [
     period: z.enum(["DAY", "MONTH"]), note: z.string().max(500).nullable(), shape: z.enum(["RECT", "CIRCLE"]),
     photos: z.array(z.object({ file: z.string().regex(/^[0-9a-f-]{36}\.(jpg|png|gif|webp)$/) })).max(MAX_PER_ASSET).optional(),
   }),
-  z.object({ t: z.literal("F"), ...boxSchema, kind: z.enum(Object.keys(FEATURES) as [FeatureKind, ...FeatureKind[]]), label: z.string().max(60).nullable() }),
+  z.object({ t: z.literal("F"), ...boxSchema, kind: z.enum(Object.keys(FEATURES) as [FeatureKind, ...FeatureKind[]]), label: z.string().max(60).nullable(), color: z.string().regex(/^#[0-9a-f]{6}$/i).nullable().optional() }),
 ])).max(500);
 const MIME: Record<string, string> = { jpg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp" };
 
@@ -353,7 +364,7 @@ export async function pasteItems(shopId: string, input: unknown, restore: boolea
       const floor = fl.get(s.floorId);
       if (!floor) return null;
       const b = fit(s, floor, s.t === "A" ? MIN_ASSET_PX : 10);
-      if (s.t === "F") return tx.insert(features).values({ shopId, floorId: floor.id, kind: s.kind, label: s.label, ...b }).returning({ id: features.id }).get().id;
+      if (s.t === "F") return tx.insert(features).values({ shopId, floorId: floor.id, kind: s.kind, label: s.label, color: s.color ?? null, ...b }).returning({ id: features.id }).get().id;
       const { id } = tx.insert(assets).values({ shopId, floorId: floor.id, code: takeCode(s.code), size: s.size, price: Math.round(s.price), period: s.period, note: s.note, shape: s.shape, ...b }).returning({ id: assets.id }).get();
       if (restore && s.photos?.length)
         tx.insert(assetPhotos).values(s.photos.map((ph) => ({ assetId: id, file: ph.file, mime: MIME[ph.file.split(".").pop()!] }))).run();
