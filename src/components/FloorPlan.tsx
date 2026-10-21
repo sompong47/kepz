@@ -10,6 +10,7 @@ import {
 } from "@/lib/domain";
 import type { FPAsset, FPFeature, FPFloor } from "@/lib/floor";
 import { RentForm } from "./Forms";
+import { BulkListing } from "./Listing";
 import Photos from "./Photos";
 
 type Mode = "move" | "rot" | "nw" | "ne" | "sw" | "se";
@@ -18,7 +19,7 @@ type Box = Rect & { rot: number };
 
 /** สแนปช็อตของห้อง/องค์ประกอบ ใช้ทั้งคัดลอก-วาง และเลิกทำ */
 type Snap = Box & { id: string; floorId: string } & (
-  | { t: "A"; code: string; size: string | null; price: number; period: "DAY" | "MONTH"; note: string | null; shape: "RECT" | "CIRCLE"; photos?: { file: string }[] }
+  | { t: "A"; code: string; size: string | null; price: number; period: "DAY" | "MONTH"; note: string | null; shape: "RECT" | "CIRCLE"; listed?: boolean; photos?: { file: string }[] }
   | { t: "F"; kind: FeatureKind; label: string | null; color?: string | null }
 );
 /** ประวัติสำหรับ Ctrl+Z / Ctrl+Y; id ในประวัติอาจถูกแทนด้วย id ใหม่หลังกู้คืน (ดู alias) */
@@ -303,7 +304,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   };
   const snapOf = (id: string): Snap | null => {
     const a = items.find((x) => x.id === id);
-    if (a) return { t: "A", id, floorId: a.floorId, x: a.x, y: a.y, w: a.w, h: a.h, rot: a.rot, code: a.code, size: a.size, price: a.price, period: a.period, note: a.note, shape: a.shape };
+    if (a) return { t: "A", id, floorId: a.floorId, x: a.x, y: a.y, w: a.w, h: a.h, rot: a.rot, code: a.code, size: a.size, price: a.price, period: a.period, note: a.note, shape: a.shape, listed: a.listed };
     const f = feats.find((x) => x.id === id);
     return f ? { t: "F", id, floorId: f.floorId, x: f.x, y: f.y, w: f.w, h: f.h, rot: f.rot, kind: f.kind, label: f.label, color: f.color } : null;
   };
@@ -527,6 +528,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
           {(Object.keys(STATE_LABEL) as AssetState[]).map((k) => (
             <span key={k} className="flex items-center gap-1.5"><i className={`inline-block size-2.5 rounded-full ${STATE_CLASS[k].split(" ")[0]}`} />{STATE_LABEL[k]}</span>
           ))}
+          <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-full border-2 border-[#bdbdbd] bg-[#fafafa]" />ไม่เปิดให้เช่า</span>
         </div>
       </div>
       {edit && floor && (
@@ -581,7 +583,8 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
                 style={{
                   ...(edit && layer === "plan" && { opacity: 0.25, pointerEvents: "none" }),
                   left: a.x, top: a.y, width: a.w, height: a.h, transform: a.rot ? `rotate(${a.rot}deg)` : undefined, background: FILL[a.state], borderRadius: a.shape === "CIRCLE" ? "9999px" : 10,
-                  color: "#111", boxShadow: "inset 0 0 0 1px rgba(17,17,17,.12)", outline: selIds.includes(a.id) ? "3px solid #111" : "none", outlineOffset: 2,
+                  color: "#111", boxShadow: "inset 0 0 0 1px rgba(17,17,17,.12)",
+                  ...(!a.listed && a.state === "VACANT" && { background: "#fafafa", color: "#9e9e9e", boxShadow: "inset 0 0 0 2px #bdbdbd" }), outline: selIds.includes(a.id) ? "3px solid #111" : "none", outlineOffset: 2,
                 }}
               >
                 <span className="flex flex-col items-center pointer-events-none" style={{ transform: upright(a.rot) }}>
@@ -614,6 +617,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
               <button className="btn-ghost !text-danger" onClick={removeSelected}>ลบที่เลือกทั้งหมด</button>
             </div>
             {selIds.some((i) => !isAsset(i)) && <ColorPicker value={null} onChange={(c) => setColor(selIds, c)} />}
+            {editable && selIds.some(isAsset) && <BulkListing shopId={shopId} ids={selIds.filter(isAsset)} unit={unit} />}
             <div className="flex flex-wrap gap-2">
               <button className="btn-ghost" onClick={() => setSelIds([])}>ยกเลิกการเลือก</button>
             </div>
@@ -645,7 +649,10 @@ function Panel({ shopId, a, unit, editable, edit, canRent, onShape, onRotate, on
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATE_CLASS[a.state]}`}>{STATE_LABEL[a.state]}</span>
       </div>
       <div className="text-muted">ขนาด {dimText(a.w, a.h)} · {areaText(a.w, a.h)}</div>
-      <div className="text-brand-ink font-semibold">{a.price > 0 ? <>{baht(a.price)} <span className="text-muted font-normal">/ {PERIOD[a.period]}</span></> : <span className="text-muted font-normal">ยังไม่ตั้งราคา</span>}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-brand-ink font-semibold">{a.price > 0 ? <>{baht(a.price)} <span className="text-muted font-normal">/ {PERIOD[a.period]}</span></> : <span className="text-muted font-normal">ยังไม่ตั้งราคา</span>}</div>
+        {(editable || !a.listed) && <span className={`text-xs rounded-full px-2 py-0.5 ${a.listed ? "bg-ok/10 text-ok" : "bg-panel2 text-muted"}`}>{a.listed ? "เปิดให้เช่า" : "ไม่เปิดให้เช่า"}</span>}
+      </div>
       {a.note && <p className="text-muted">{a.note}</p>}
       <Photos shopId={shopId} assetId={a.id} photos={a.photos} editable={editable} />
 
@@ -669,8 +676,8 @@ function Panel({ shopId, a, unit, editable, edit, canRent, onShape, onRotate, on
         <div className="border-t border-line pt-3 text-muted">มีผู้เช่า · สัญญาถึง {fmtDate(a.endDate)}</div>
       ) : null}
 
-      {canRent && a.price > 0 && (
-        <details className="border-t border-line pt-3"><summary className="btn list-none w-full">ขอเช่า{unit}นี้</summary><RentForm assetId={a.id} period={a.period} /></details>
+      {canRent && a.listed && a.price > 0 && (
+        <details className="border-t border-line pt-3"><summary className="btn list-none w-full">ขอเช่า{unit}นี้</summary><RentForm assetId={a.id} price={a.price} period={a.period} busy={a.busy} /></details>
       )}
 
       {editable && edit && (
@@ -685,6 +692,10 @@ function Panel({ shopId, a, unit, editable, edit, canRent, onShape, onRotate, on
             <label><span className="label">ต่อ</span><select name="period" defaultValue={a.period} className="input"><option value="MONTH">เดือน</option><option value="DAY">วัน</option></select></label>
           </div>
           <label><span className="label">หมายเหตุ</span><input name="note" defaultValue={a.note ?? ""} className="input" /></label>
+          <label className="flex items-center gap-2 rounded-xl border border-line px-3 py-2 cursor-pointer">
+            <input key={`l${a.listed}`} type="checkbox" name="listed" defaultChecked={a.listed} className="size-4 accent-[#ffc700]" />
+            <span>เปิดให้เช่า <span className="text-xs text-muted">(ต้องตั้งราคามากกว่า 0)</span></span>
+          </label>
           {st?.error && <p className="text-danger text-xs">{st.error}</p>}
           <div className="flex flex-wrap gap-2">
             <button className="btn" disabled={pending}>บันทึก</button>

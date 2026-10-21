@@ -19,20 +19,20 @@ async function main() {
   const [kepz, park, boat] = await db
     .insert(shops)
     .values([
-      { name: "kepz Storage", category: "STORAGE", location: "ลาดพร้าว กรุงเทพฯ", description: "ห้องเก็บของปลอดภัย CCTV 24 ชม. ขนาด XS–L", ownerId: seller.id },
-      { name: "จอดสบาย", category: "PARKING", location: "สุขุมวิท 22", description: "ที่จอดรถรายเดือน ใกล้ BTS", ownerId: seller.id },
-      { name: "เรือเช่าเกาะเสม็ด", category: "BOAT", location: "ระยอง", description: "เรือสปีดโบ๊ท เช่ารายวัน", ownerId: seller.id },
+      { name: "kepz Storage", category: "STORAGE", location: "ลาดพร้าว กรุงเทพฯ", description: "ห้องเก็บของปลอดภัย CCTV 24 ชม. ขนาด XS–L", ownerId: seller.id, published: true },
+      { name: "จอดสบาย", category: "PARKING", location: "สุขุมวิท 22", description: "ที่จอดรถรายเดือน ใกล้ BTS", ownerId: seller.id, published: true },
+      { name: "เรือเช่าเกาะเสม็ด", category: "BOAT", location: "ระยอง", description: "เรือสปีดโบ๊ท เช่ารายวัน", ownerId: seller.id, published: true },
     ])
     .returning();
 
   const sizes = [["XS", 800], ["S", 1200], ["M", 1800], ["L", 2800]] as const;
   const rows = Array.from({ length: 12 }, (_, i) => {
     const [size, price] = sizes[i % 4];
-    return { shopId: kepz.id, code: `A${String(i + 1).padStart(2, "0")}`, size, price, period: "MONTH" as const };
+    return { shopId: kepz.id, code: `A${String(i + 1).padStart(2, "0")}`, size, price, period: "MONTH" as const, listed: true };
   });
   const created = await db.insert(assets).values(rows).returning();
-  const p1 = await db.insert(assets).values([{ shopId: park.id, code: "P01", size: "รถเก๋ง", price: 2500, period: "MONTH" }, { shopId: park.id, code: "P02", size: "รถเก๋ง", price: 2500, period: "MONTH" }]).returning();
-  await db.insert(assets).values([{ shopId: boat.id, code: "สปีดโบ๊ท 1", size: "10 ที่นั่ง", price: 6000, period: "DAY" }]);
+  const p1 = await db.insert(assets).values([{ shopId: park.id, code: "P01", size: "รถเก๋ง", price: 2500, period: "MONTH", listed: true }, { shopId: park.id, code: "P02", size: "รถเก๋ง", price: 2500, period: "MONTH", listed: true }]).returning();
+  await db.insert(assets).values([{ shopId: boat.id, code: "สปีดโบ๊ท 1", size: "10 ที่นั่ง", price: 6000, period: "DAY", listed: true }]);
 
   const now = Date.now();
   const D = 86400000;

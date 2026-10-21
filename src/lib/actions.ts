@@ -51,7 +51,7 @@ export async function createShop(_: FormState, f: FormData): Promise<FormState> 
   if (s(f, "name").length < 2) return { error: "กรอกชื่อร้าน" };
   const [shop] = await db
     .insert(shops)
-    .values({ name: s(f, "name"), category, description: s(f, "description") || null, location: s(f, "location") || null, phone: s(f, "phone") || null, ownerId: u.id })
+    .values({ name: s(f, "name"), category, description: s(f, "description") || null, location: s(f, "location") || null, phone: s(f, "phone") || null, ownerId: u.id, published: false })
     .returning();
   await floorsOf(shop.id);
   redirect(`/seller/shops/${shop.id}`);
@@ -85,7 +85,7 @@ export async function addAsset(shopId: string, _: FormState, f: FormData): Promi
   if (dims && "error" in dims) return dims;
   const [floor] = await floorsOf(shopId);
   try {
-    await db.insert(assets).values({ shopId, floorId: floor.id, code, size: s(f, "size") || null, note: s(f, "note") || null, price: Math.round(price), period, ...(dims && fit({ x: 20, y: snap((await floorBottom(floor.id)) + 20), ...dims }, floor, MIN_ASSET_PX)) });
+    await db.insert(assets).values({ shopId, floorId: floor.id, code, size: s(f, "size") || null, note: s(f, "note") || null, price: Math.round(price), period, listed: true, ...(dims && fit({ x: 20, y: snap((await floorBottom(floor.id)) + 20), ...dims }, floor, MIN_ASSET_PX)) });
   } catch {
     return { error: `รหัส ${code} มีอยู่แล้วในร้านนี้` };
   }
@@ -99,6 +99,43 @@ export async function deleteAsset(assetId: string, shopId: string) {
   await removePhotoFilesOf([a.id]);
   await db.delete(assets).where(eq(assets.id, a.id));
   revalidatePath(`/seller/shops/${shopId}`);
+}
+
+/* ---------- เปิดให้เช่า ---------- */
+/** เปิด/ปิดร้าน; จะเปิดได้ต้องมีอย่างน้อย 1 รายการที่เปิดให้เช่า */
+export async function setShopPublished(shopId: string, published: boolean): Promise<FormState> {
+  await ownShop(shopId);
+  if (published && !(await db.query.assets.findFirst({ where: and(eq(assets.shopId, shopId), eq(assets.listed, true)) })))
+    return { error: "ยังไม่มีรายการที่เปิดให้เช่า — ตั้งราคาและเปิดให้เช่าอย่างน้อย 1 รายการก่อน" };
+  await db.update(shops).set({ published: !!published }).where(eq(shops.id, shopId));
+  revalidatePath("/", "layout");
+  return { error: undefined };
+}
+
+/** ตั้งราคา และ/หรือ เปิด-ปิดการเช่าหลายรายการพร้อมกัน; ids ว่าง = ทุกรายการในร้าน */
+export async function setListing(shopId: string, ids: string[] | null, v: { price?: number; period?: "DAY" | "MONTH"; listed?: boolean }) {
+  await ownShop(shopId);
+  const where = ids === null ? eq(assets.shopId, shopId) : and(eq(assets.shopId, shopId), inArray(assets.id, (Array.isArray(ids) ? ids : []).slice(0, 1000)));
+  const rows = await db.query.assets.findMany({ where });
+  const price = v.price === undefined ? undefined : Math.round(Number(v.price));
+  if (price !== undefined && !(price >= 0)) return { updated: 0, skipped: [] as string[] };
+  const period = v.period === "DAY" || v.period === "MONTH" ? v.period : undefined;
+  const skipped: string[] = [];
+  db.transaction((tx) => {
+    for (const a of rows) {
+      const p = price ?? a.price;
+      let listed = v.listed ?? a.listed;
+      if (listed && p <= 0) { listed = false; if (v.listed) skipped.push(a.code); }
+      tx.update(assets).set({ price: p, ...(period && { period }), listed }).where(eq(assets.id, a.id)).run();
+    }
+  });
+  revalidatePath("/", "layout");
+  return { updated: rows.length - skipped.length, skipped };
+}
+
+export async function toggleListed(assetId: string, shopId: string) {
+  const a = await db.query.assets.findFirst({ where: and(eq(assets.id, assetId), eq(assets.shopId, shopId)) });
+  if (a) await setListing(shopId, [a.id], { listed: !a.listed });
 }
 
 /* ---------- รูปของห้อง/ช่อง ---------- */
@@ -223,7 +260,7 @@ export async function duplicateAsset(shopId: string, assetId: string) {
   const prefix = a.code.match(/^\D*/)?.[0] || "A";
   const d = defaultBox(0);
   const b = fit({ x: (a.x ?? d.x) + (a.w ?? d.w) + 10, y: a.y ?? d.y, w: a.w ?? d.w, h: a.h ?? d.h, rot: a.rot }, a.floor ?? CANVAS, MIN_ASSET_PX);
-  const [n] = await db.insert(assets).values({ shopId, floorId: a.floorId, code: (await codeMaker(shopId, prefix))(), size: a.size, price: a.price, period: a.period, note: a.note, shape: a.shape, ...b }).returning();
+  const [n] = await db.insert(assets).values({ shopId, floorId: a.floorId, code: (await codeMaker(shopId, prefix))(), size: a.size, price: a.price, period: a.period, note: a.note, shape: a.shape, listed: a.listed, ...b }).returning();
   revalidatePath(`/seller/shops/${shopId}`);
   return n.id;
 }
@@ -335,7 +372,7 @@ export async function deleteItems(shopId: string, ids: string[]) {
 const boxSchema = { x: z.number(), y: z.number(), w: z.number(), h: z.number(), rot: z.number().optional(), floorId: z.string() };
 const snapSchema = z.array(z.discriminatedUnion("t", [
   z.object({
-    t: z.literal("A"), ...boxSchema, code: z.string().trim().min(1).max(40), size: z.string().max(40).nullable(), price: z.number().min(0),
+    t: z.literal("A"), ...boxSchema, code: z.string().trim().min(1).max(40), size: z.string().max(40).nullable(), price: z.number().min(0), listed: z.boolean().optional(),
     period: z.enum(["DAY", "MONTH"]), note: z.string().max(500).nullable(), shape: z.enum(["RECT", "CIRCLE"]),
     photos: z.array(z.object({ file: z.string().regex(/^[0-9a-f-]{36}\.(jpg|png|gif|webp)$/) })).max(MAX_PER_ASSET).optional(),
   }),
@@ -365,7 +402,7 @@ export async function pasteItems(shopId: string, input: unknown, restore: boolea
       if (!floor) return null;
       const b = fit(s, floor, s.t === "A" ? MIN_ASSET_PX : 10);
       if (s.t === "F") return tx.insert(features).values({ shopId, floorId: floor.id, kind: s.kind, label: s.label, color: s.color ?? null, ...b }).returning({ id: features.id }).get().id;
-      const { id } = tx.insert(assets).values({ shopId, floorId: floor.id, code: takeCode(s.code), size: s.size, price: Math.round(s.price), period: s.period, note: s.note, shape: s.shape, ...b }).returning({ id: assets.id }).get();
+      const { id } = tx.insert(assets).values({ shopId, floorId: floor.id, code: takeCode(s.code), size: s.size, price: Math.round(s.price), period: s.period, note: s.note, shape: s.shape, listed: !!s.listed && s.price > 0, ...b }).returning({ id: assets.id }).get();
       if (restore && s.photos?.length)
         tx.insert(assetPhotos).values(s.photos.map((ph) => ({ assetId: id, file: ph.file, mime: MIME[ph.file.split(".").pop()!] }))).run();
       return id;
@@ -409,7 +446,7 @@ export async function generateLayout(shopId: string, floorId: string, _: FormSta
       y += o.aisle + o.gap;
     }
     for (let c = 0; c < o.cols; c++)
-      newAssets.push({ shopId, floorId, code: next(), size: o.size || null, price: Math.round(o.price), period: o.period, shape: "RECT", x: x0 + c * (o.w + o.gap), y, w: o.w, h: o.h });
+      newAssets.push({ shopId, floorId, code: next(), size: o.size || null, price: Math.round(o.price), period: o.period, listed: o.price > 0, shape: "RECT", x: x0 + c * (o.w + o.gap), y, w: o.w, h: o.h });
     y += o.h + o.gap;
   }
   const needW = x0 + rowW + 20, needH = y + 20;
@@ -430,6 +467,8 @@ export async function updateAsset(shopId: string, assetId: string, _: FormState,
   const price = Number(f.get("price"));
   if (!code) return { error: "กรอกรหัส/ชื่อ" };
   if (!Number.isFinite(price) || price < 0) return { error: "ราคาไม่ถูกต้อง" };
+  const listed = f.get("listed") === "on";
+  if (listed && price <= 0) return { error: "ตั้งราคาก่อนเปิดให้เช่า" };
   const dims = readDims(f);
   if (dims && "error" in dims) return dims;
   const a = await db.query.assets.findFirst({ where: and(eq(assets.id, assetId), eq(assets.shopId, shopId)), with: { floor: true } });
@@ -438,7 +477,7 @@ export async function updateAsset(shopId: string, assetId: string, _: FormState,
   const d = defaultBox(0);
   const box = dims ? fit({ x: a.x ?? d.x, y: a.y ?? d.y, ...dims, rot: a.rot }, a.floor ?? CANVAS, MIN_ASSET_PX) : {};
   try {
-    await db.update(assets).set({ code, size: s(f, "size") || null, note: s(f, "note") || null, price: Math.round(price), period: s(f, "period") === "DAY" ? "DAY" : "MONTH", ...box })
+    await db.update(assets).set({ code, size: s(f, "size") || null, note: s(f, "note") || null, price: Math.round(price), period: s(f, "period") === "DAY" ? "DAY" : "MONTH", listed, ...box })
       .where(eq(assets.id, a.id));
   } catch {
     return { error: `รหัส ${code} ซ้ำในร้านนี้` };
@@ -457,9 +496,8 @@ export async function requestLease(assetId: string, _: FormState, f: FormData): 
   const u = await getUser();
   if (!u) redirect("/login");
   const asset = await db.query.assets.findFirst({ where: eq(assets.id, assetId), with: { shop: true } });
-  if (!asset || !asset.shop.active) return { error: "ไม่พบรายการ" };
-  if (asset.shop.ownerId === u.id) return { error: "ไม่สามารถเช่ารายการในร้านของตัวเองได้" };
-  if (asset.price <= 0) return { error: "รายการนี้ยังไม่เปิดให้เช่า" };
+  if (!asset || !asset.shop.active || !asset.shop.published) return { error: "ไม่พบรายการ" };
+  if (!asset.listed || asset.price <= 0) return { error: "รายการนี้ยังไม่เปิดให้เช่า" };
   const start = new Date(s(f, "start"));
   const end = new Date(s(f, "end"));
   if (isNaN(+start) || isNaN(+end)) return { error: "เลือกวันที่เริ่มและวันสิ้นสุด" };

@@ -40,8 +40,14 @@ export default async function Seller() {
         {my.map((s) => (
           <Link key={s.id} href={`/seller/shops/${s.id}`} className="card hover:border-brand">
             <div className="text-2xl">{CATEGORIES[s.category].icon}</div>
-            <div className="font-bold mt-1">{s.name} {!s.active && <span className="text-xs text-danger">(ถูกระงับ)</span>}</div>
-            <div className="text-sm text-muted">{s.assets.length} {CATEGORIES[s.category].unit}</div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-bold mt-1">{s.name}</div>
+              <span className={`text-xs rounded-full px-2.5 py-1 shrink-0 ${!s.active ? "bg-danger/10 text-danger" : s.published ? "bg-ok/10 text-ok" : "bg-brand/20 text-ink2"}`}>
+                {!s.active ? "ถูกระงับ" : s.published ? "● เปิดให้เช่า" : "ฉบับร่าง"}
+              </span>
+            </div>
+            <div className="text-sm text-muted">{s.assets.length} {CATEGORIES[s.category].unit} · เปิดให้เช่า {s.assets.filter((a) => a.listed).length}</div>
+            {s.active && !s.published && <div className="text-xs text-brand-ink mt-2">ยังไม่เปิดร้าน — เข้าไปตั้งราคาแล้วกด “เปิดร้านให้เช่า” →</div>}
           </Link>
         ))}
         {!my.length && <p className="text-muted">ยังไม่มีร้าน — กด “สร้างร้านใหม่” เพื่อเริ่มต้น</p>}

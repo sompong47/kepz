@@ -5,14 +5,14 @@ export type FPFeature = { id: string; floorId: string; kind: FeatureKind; label:
 export type FPPayment = { id: string; amount: number; due: number; paid: number | null };
 export type FPAsset = {
   id: string; floorId: string; code: string; size: string | null; price: number; period: "DAY" | "MONTH"; note: string | null;
-  x: number; y: number; w: number; h: number; rot: number; shape: "RECT" | "CIRCLE";
-  state: AssetState; endDate: number | null; photos: string[];
+  x: number; y: number; w: number; h: number; rot: number; shape: "RECT" | "CIRCLE"; listed: boolean;
+  state: AssetState; endDate: number | null; photos: string[]; busy: { start: number; end: number }[];
   lease: null | { id: string; tenant: string; phone: string | null; start: number; end: number; billing: string; payments: FPPayment[] };
 };
 
 type Src = {
   id: string; floorId: string | null; code: string; size: string | null; price: number; period: "DAY" | "MONTH"; note: string | null;
-  x: number | null; y: number | null; w: number | null; h: number | null; rot: number; shape: "RECT" | "CIRCLE";
+  x: number | null; y: number | null; w: number | null; h: number | null; rot: number; shape: "RECT" | "CIRCLE"; listed: boolean;
   photos?: { id: string; createdAt: Date | null }[];
   leases: { id: string; status: string; startDate: Date; endDate: Date; billing: string; tenant?: { name: string; phone: string | null }; payments?: { id: string; amount: number; dueDate: Date; paidAt: Date | null }[] }[];
 };
@@ -27,8 +27,9 @@ export function toFP(rows: Src[], detail: boolean, firstFloorId: string): FPAsse
     const active = a.leases.find((l) => l.status === "ACTIVE" && +l.endDate >= Date.now());
     return {
       id: a.id, floorId, code: a.code, size: a.size, price: a.price, period: a.period, note: a.note, shape: a.shape,
-      x: a.x ?? d.x, y: a.y ?? d.y, w: a.w ?? d.w, h: a.h ?? d.h, rot: a.rot,
+      x: a.x ?? d.x, y: a.y ?? d.y, w: a.w ?? d.w, h: a.h ?? d.h, rot: a.rot, listed: a.listed,
       state: assetState(a.leases), endDate: active ? +active.endDate : null,
+      busy: a.leases.filter((l) => l.status === "ACTIVE").map((l) => ({ start: +l.startDate, end: +l.endDate })),
       photos: [...(a.photos ?? [])].sort((p, q) => +(p.createdAt ?? 0) - +(q.createdAt ?? 0)).map((p) => p.id),
       lease: detail && active && active.tenant
         ? {

@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { and, eq } from "drizzle-orm";
 import { db, shops } from "@/db";
-import { CATEGORIES, assetState, type Category } from "@/lib/domain";
+import { CATEGORIES, type Category } from "@/lib/domain";
 import { IconBadge, LogoMark, type IconName } from "@/components/Brand";
+import ShopCard from "@/components/ShopCard";
+import { getUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +19,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
   const { c } = await searchParams;
   const cat = c && c in CATEGORIES ? (c as Category) : null;
   const list = await db.query.shops.findMany({
-    where: cat ? and(eq(shops.active, true), eq(shops.category, cat)) : eq(shops.active, true),
+    where: and(eq(shops.active, true), eq(shops.published, true), cat ? eq(shops.category, cat) : undefined),
     with: { assets: { with: { leases: true } } },
   });
+  const u = await getUser();
   return (
     <div className="space-y-10">
       <section className="grid gap-8 lg:grid-cols-[1.2fr_1fr] items-center pt-4">
@@ -64,25 +67,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {list.map((s) => {
-            const priced = s.assets.filter((a) => a.price > 0);
-            const vacant = priced.filter((a) => assetState(a.leases) === "VACANT").length;
-            const from = priced.length ? Math.min(...priced.map((a) => a.price)) : null;
-            return (
-              <Link key={s.id} href={`/shops/${s.id}`} className="card hover:border-brand hover:shadow-md transition group">
-                <div className="flex items-start justify-between">
-                  <span className="grid place-items-center size-12 rounded-full bg-brand text-2xl">{CATEGORIES[s.category].icon}</span>
-                  <span className="text-xs rounded-full bg-panel2 px-2.5 py-1 text-ink2">{CATEGORIES[s.category].label}</span>
-                </div>
-                <h3 className="font-semibold text-lg mt-3 group-hover:underline decoration-brand decoration-2 underline-offset-4">{s.name}</h3>
-                <p className="text-sm text-muted">{s.location ?? CATEGORIES[s.category].label}</p>
-                <p className="text-sm mt-3">
-                  <span className="text-ok font-medium">ว่าง {vacant}</span> / {priced.length} {CATEGORIES[s.category].unit}
-                  {from ? <> · เริ่ม <span className="font-semibold">฿{from.toLocaleString()}</span></> : null}
-                </p>
-              </Link>
-            );
-          })}
+          {list.map((s) => <ShopCard key={s.id} s={s} viewerId={u?.id} />)}
           {!list.length && <p className="text-muted">ยังไม่มีร้านในหมวดนี้</p>}
         </div>
       </section>

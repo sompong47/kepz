@@ -2,15 +2,15 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db, shops, floorsOf } from "@/db";
 import { requireUser } from "@/lib/auth";
-import { addAsset as _a, deleteAsset, decideLease, markPaid } from "@/lib/actions";
+import { deleteAsset, decideLease, markPaid, toggleListed } from "@/lib/actions";
 import { CATEGORIES, PERIOD, BILLING, assetState, baht, defaultBox, dimText, fmtDate } from "@/lib/domain";
 import { AssetForm } from "@/components/Forms";
 import { StateBadge, Stat } from "@/components/ui";
 import FloorPlan from "@/components/FloorPlan";
+import { PublishBar } from "@/components/Listing";
 import { toFP } from "@/lib/floor";
 
 export const dynamic = "force-dynamic";
-void _a;
 
 export default async function ManageShop({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -36,6 +36,12 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">{cat.icon} {shop.name}</h1>
+
+      <PublishBar
+        shopId={shop.id} published={shop.published} active={shop.active} unit={cat.unit}
+        total={assets.length} priced={assets.filter((a) => a.price > 0).length} listed={assets.filter((a) => a.listed).length}
+        unlistedIds={assets.filter((a) => !a.listed).map((a) => a.id)} hasPlan={shop.features.length > 0}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Stat label="อัตราเข้าพัก" value={`${assets.length ? Math.round((occupied / assets.length) * 100) : 0}%`} />
@@ -95,6 +101,9 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
               <li key={a.id} className="py-2 flex items-center justify-between gap-2">
                 <span><b>{a.code}</b> {a.size} · {dimText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)} · {baht(a.price)}/{PERIOD[a.period]}</span>
                 <span className="flex items-center gap-2"><StateBadge state={assetState(a.leases)} />
+                  <form action={toggleListed.bind(null, a.id, shop.id)}>
+                    <button className={`text-xs rounded-full px-2 py-0.5 cursor-pointer ${a.listed ? "bg-ok/10 text-ok" : "bg-panel2 text-muted"}`} title="คลิกเพื่อสลับ">{a.listed ? "เปิดให้เช่า" : "ปิดอยู่"}</button>
+                  </form>
                   <form action={deleteAsset.bind(null, a.id, shop.id)}><button className="text-danger text-xs">ลบ</button></form></span>
               </li>
             ))}

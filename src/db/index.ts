@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, amount INTEGER NOT NUL
 `;
 
 // เพิ่มเลขนี้เมื่อแก้ DDL/migrate เพื่อให้ dev server ที่เปิดค้างไว้รัน migrate ซ้ำ
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const g = globalThis as unknown as { _sqlite?: Database.Database; _db?: ReturnType<typeof drizzle<typeof schema>>; _schemaVersion?: number };
 
 function migrate(sqlite: Database.Database) {
@@ -26,6 +26,18 @@ function migrate(sqlite: Database.Database) {
   const cols = (sqlite.prepare("PRAGMA table_info(assets)").all() as { name: string }[]).map((c) => c.name);
   for (const [c, def] of [["x", "INTEGER"], ["y", "INTEGER"], ["w", "INTEGER"], ["h", "INTEGER"], ["shape", "TEXT NOT NULL DEFAULT 'RECT'"], ["floor_id", "TEXT REFERENCES floors(id) ON DELETE SET NULL"], ["rot", "INTEGER NOT NULL DEFAULT 0"]])
     if (!cols.includes(c)) sqlite.exec(`ALTER TABLE assets ADD COLUMN ${c} ${def}`);
+  // migrate: ธงเปิดให้เช่า; ของเดิมที่ตั้งราคาแล้วถือว่าเปิดอยู่ (เหมือนพฤติกรรมเดิม)
+  if (!cols.includes("listed")) {
+    sqlite.exec("ALTER TABLE assets ADD COLUMN listed INTEGER NOT NULL DEFAULT 0");
+    sqlite.exec("UPDATE assets SET listed = 1 WHERE price > 0");
+  }
+  // migrate: สถานะร้าน (ฉบับร่าง/เปิดให้เช่า); ร้านเดิมที่แสดงอยู่แล้วให้คงเปิดไว้
+  const scols = (sqlite.prepare("PRAGMA table_info(shops)").all() as { name: string }[]).map((c) => c.name);
+  if (!scols.includes("published")) {
+    sqlite.exec("ALTER TABLE shops ADD COLUMN published INTEGER NOT NULL DEFAULT 1");
+    // ร้านที่ยังไม่มีอะไรเปิดให้เช่า ให้เริ่มเป็นฉบับร่าง
+    sqlite.exec("UPDATE shops SET published = 0 WHERE id NOT IN (SELECT shop_id FROM assets WHERE listed = 1)");
+  }
   const fcols = (sqlite.prepare("PRAGMA table_info(features)").all() as { name: string }[]).map((c) => c.name);
   if (!fcols.includes("rot")) sqlite.exec("ALTER TABLE features ADD COLUMN rot INTEGER NOT NULL DEFAULT 0");
   if (!fcols.includes("color")) sqlite.exec("ALTER TABLE features ADD COLUMN color TEXT");

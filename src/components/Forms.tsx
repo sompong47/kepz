@@ -1,8 +1,8 @@
 "use client";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { login, register, createShop, addAsset, requestLease, type FormState } from "@/lib/actions";
-import { CATEGORIES, BILLING } from "@/lib/domain";
+import { CATEGORIES, BILLING, baht, buildPayments, daysBetween, fmtDate } from "@/lib/domain";
 
 function Err({ s }: { s: FormState }) {
   return s?.error ? <p className="text-sm text-danger bg-danger/10 rounded-lg px-3 py-2">{s.error}</p> : null;
@@ -82,22 +82,54 @@ export function AssetForm({ shopId, unit }: { shopId: string; unit: string }) {
   );
 }
 
-export function RentForm({ assetId, period }: { assetId: string; period: "DAY" | "MONTH" }) {
+export type BusyRange = { start: number; end: number };
+
+/** ฟอร์มขอเช่า: คำนวณยอดให้ทันที และแสดงช่วงที่มีผู้เช่าแล้ว */
+export function RentForm({ assetId, price, period, busy = [] }: { assetId: string; price: number; period: "DAY" | "MONTH"; busy?: BusyRange[] }) {
   const [st, act, pending] = useActionState(requestLease.bind(null, assetId), undefined);
   const today = new Date().toISOString().slice(0, 10);
+  const [v, setV] = useState({ start: "", end: "", billing: "MONTH" as "MONTH" | "HALF_YEAR" | "YEAR" });
+  const s = v.start ? new Date(v.start) : null, e = v.end ? new Date(v.end) : null;
+  const valid = s && e && +e > +s;
+  const clash = valid && busy.some((r) => r.start < +e! && r.end > +s!);
+  const pays = valid ? buildPayments({ price, period, start: s!, end: e!, billing: v.billing }) : [];
+  const total = pays.reduce((n, p) => n + p.amount, 0);
+  const upcoming = busy.filter((r) => r.end >= Date.now()).sort((x, y) => x.start - y.start);
   return (
     <form action={act} className="space-y-2 mt-3 border-t border-line pt-3">
+      {upcoming.length > 0 && (
+        <div className="rounded-lg bg-panel2 px-3 py-2 text-xs">
+          <div className="font-medium mb-0.5">ช่วงที่มีผู้เช่าแล้ว</div>
+          {upcoming.map((r) => <div key={r.start} className="text-muted">{fmtDate(r.start)} – {fmtDate(r.end)}</div>)}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2">
-        <F label="วันเริ่ม"><input type="date" name="start" min={today} required className="input" /></F>
-        <F label="วันสิ้นสุด"><input type="date" name="end" min={today} required className="input" /></F>
+        <F label="วันเริ่ม"><input type="date" name="start" min={today} required className="input" value={v.start} onChange={(x) => setV({ ...v, start: x.target.value })} /></F>
+        <F label="วันสิ้นสุด"><input type="date" name="end" min={v.start || today} required className="input" value={v.end} onChange={(x) => setV({ ...v, end: x.target.value })} /></F>
       </div>
       {period === "MONTH" && (
         <F label="รอบชำระเงิน">
-          <select name="billing" className="input">{Object.entries(BILLING).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+          <select name="billing" className="input" value={v.billing} onChange={(x) => setV({ ...v, billing: x.target.value as typeof v.billing })}>
+            {Object.entries(BILLING).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
         </F>
       )}
+      {valid && (
+        <div className={`rounded-lg px-3 py-2 text-sm ${clash ? "bg-danger/10 text-danger" : "bg-brand/15"}`}>
+          {clash ? "ช่วงวันที่นี้ทับกับผู้เช่าคนอื่น" : (
+            <>
+              <div className="flex justify-between"><span>ยอดรวม</span><b>{baht(total)}</b></div>
+              <div className="flex justify-between text-xs text-ink2">
+                <span>{period === "DAY" ? `${daysBetween(s!, e!)} วัน × ${baht(price)}` : `${pays.length} งวด`}</span>
+                <span>งวดแรก {baht(pays[0]?.amount ?? 0)} · {fmtDate(s!)}</span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
       <Err s={st} />
-      <button className="btn w-full" disabled={pending}>ส่งคำขอเช่า</button>
+      <button className="btn w-full" disabled={pending || !!clash}>{pending ? "กำลังส่ง…" : "ส่งคำขอเช่า"}</button>
+      <p className="text-[11px] text-muted text-center">ผู้ให้เช่าจะตรวจสอบและอนุมัติ แล้วระบบจะสร้างตารางชำระเงินให้</p>
     </form>
   );
 }

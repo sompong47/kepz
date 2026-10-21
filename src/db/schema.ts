@@ -21,7 +21,8 @@ export const shops = sqliteTable("shops", {
   category: text("category", { enum: ["STORAGE", "PARKING", "STALL", "CAR", "BOAT"] }).notNull(),
   location: text("location"),
   phone: text("phone"),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  active: integer("active", { mode: "boolean" }).notNull().default(true), // แอดมินระงับได้
+  published: integer("published", { mode: "boolean" }).notNull().default(false), // เจ้าของเปิดร้านให้เช่าแล้ว
   ownerId: text("owner_id").notNull().references(() => users.id),
   createdAt: createdAt(),
 });
@@ -41,6 +42,7 @@ export const assets = sqliteTable(
     h: integer("h"),
     shape: text("shape", { enum: ["RECT", "CIRCLE"] }).notNull().default("RECT"),
     rot: integer("rot").notNull().default(0), // องศา หมุนรอบจุดกึ่งกลาง
+    listed: integer("listed", { mode: "boolean" }).notNull().default(false), // เปิดให้เช่า (ต้องมีราคา)
     floorId: text("floor_id").references(() => floors.id, { onDelete: "set null" }),
     shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
   },
