@@ -1,20 +1,26 @@
-import { desc, eq } from "drizzle-orm";
-import { db, leases } from "@/db";
-import { requireRole } from "@/lib/auth";
+import { and, desc, eq } from "drizzle-orm";
+import { db, leases, shops } from "@/db";
+import { requireUser } from "@/lib/auth";
 import { cancelLease } from "@/lib/actions";
 import { CATEGORIES, BILLING, baht, fmtDate } from "@/lib/domain";
 import { Stat } from "@/components/ui";
 import Link from "next/link";
+import ShopCard from "@/components/ShopCard";
 
 export const dynamic = "force-dynamic";
 const ST = { PENDING: "รออนุมัติ", ACTIVE: "กำลังเช่า", REJECTED: "ถูกปฏิเสธ", ENDED: "สิ้นสุด/ยกเลิก" } as const;
 
 export default async function Tenant() {
-  const u = await requireRole("TENANT");
+  const u = await requireUser();
   const rows = await db.query.leases.findMany({
     where: eq(leases.tenantId, u.id),
     orderBy: desc(leases.createdAt),
     with: { asset: { with: { shop: true } }, payments: true },
+  });
+  // ร้านที่เปิดให้เช่า (รวมร้านของตัวเอง ซึ่งเช่าเองได้)
+  const open = await db.query.shops.findMany({
+    where: and(eq(shops.active, true), eq(shops.published, true)),
+    with: { assets: { with: { leases: true } } },
   });
   const now = Date.now();
   const allPay = rows.filter((l) => l.status === "ACTIVE").flatMap((l) => l.payments);
@@ -27,18 +33,18 @@ export default async function Tenant() {
         <Stat label="รออนุมัติ" value={rows.filter((l) => l.status === "PENDING").length} />
         <Stat label="ยอดค้างชำระ" value={baht(due)} tone={due ? "warn" : "ok"} />
       </div>
-      <div className="flex justify-between items-center"><h2 className="font-semibold">การเช่าของฉัน</h2><Link href="/" className="btn">+ เช่าเพิ่ม</Link></div>
+      <div className="flex justify-between items-center"><h2 className="font-semibold">การเช่าของฉัน</h2><Link href="#shops" className="btn">+ ค้นหาพื้นที่เช่า</Link></div>
       <div className="space-y-3">
         {rows.map((l) => (
           <div key={l.id} className="card">
             <div className="flex flex-wrap justify-between gap-2">
               <div>
                 <div className="font-bold">{CATEGORIES[l.asset.shop.category].icon} {l.asset.shop.name} · {l.asset.code}</div>
-                <div className="text-sm text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)} · {BILLING[l.billing]}</div>
+                <div className="text-sm text-muted">{fmtDate(l.startDate)} – {fmtDate(l.endDate)} · {BILLING[l.billing]}</div>
               </div>
               <span className="text-sm rounded-full bg-panel2 px-3 py-1 h-fit">{ST[l.status]}</span>
             </div>
-            {l.status === "ACTIVE" && +l.endDate - now < 30 * 86400000 && <p className="text-amber-400 text-sm mt-2">⚠ สัญญาใกล้หมดอายุ</p>}
+            {l.status === "ACTIVE" && +l.endDate - now < 30 * 86400000 && <p className="text-warn text-sm mt-2">⚠ สัญญาใกล้หมดอายุ</p>}
             {l.payments.length > 0 && (
               <table className="w-full text-sm mt-3">
                 <tbody>
@@ -46,18 +52,36 @@ export default async function Tenant() {
                     <tr key={p.id} className="border-t border-line">
                       <td className="py-1.5">ครบกำหนด {fmtDate(p.dueDate)}</td>
                       <td>{baht(p.amount)}</td>
-                      <td className="text-right">{p.paidAt ? <span className="text-emerald-400">ชำระแล้ว</span> : +p.dueDate < now ? <span className="text-red-400">เกินกำหนด</span> : <span className="text-slate-400">รอชำระ</span>}</td>
+                      <td className="text-right">{p.paidAt ? <span className="text-ok">ชำระแล้ว</span> : +p.dueDate < now ? <span className="text-danger">เกินกำหนด</span> : <span className="text-muted">รอชำระ</span>}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
-            {l.status === "PENDING" && <form action={cancelLease.bind(null, l.id)} className="mt-3"><button className="btn-ghost">ยกเลิกคำขอ</button></form>}
+            {l.status === "PENDING" && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand/15 px-3 py-2 text-sm">
+                <span>⏳ ส่งคำขอแล้ว รอผู้ให้เช่าอนุมัติ — เมื่ออนุมัติจะมีตารางชำระเงินขึ้นที่นี่</span>
+                <form action={cancelLease.bind(null, l.id)}><button className="btn-ghost !py-1.5">ยกเลิกคำขอ</button></form>
+              </div>
+            )}
           </div>
         ))}
-        {!rows.length && <p className="text-slate-400">ยังไม่มีรายการเช่า</p>}
+        {!rows.length && (
+          <div className="card text-center space-y-3 py-10">
+            <p className="text-muted">ยังไม่มีรายการเช่า</p>
+            <p className="text-sm text-ink2">เลือกร้าน → แตะพื้นที่ในผังหรือการ์ด → เลือกวันที่ → ส่งคำขอเช่า → รอผู้ให้เช่าอนุมัติ</p>
+          </div>
+        )}
       </div>
-      <p className="text-xs text-slate-500">การชำระเงิน: ผู้ขายยืนยันการรับเงินในระบบ (เฟสถัดไปเพิ่ม PromptPay/แนบสลิปได้)</p>
+
+      <section id="shops" className="space-y-3 scroll-mt-20">
+        <h2 className="font-semibold">ร้านที่เปิดให้เช่า ({open.length})</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {open.map((s) => <ShopCard key={s.id} s={s} viewerId={u.id} />)}
+        </div>
+        {!open.length && <p className="text-sm text-muted">ยังไม่มีร้านที่เปิดให้เช่า</p>}
+      </section>
+      <p className="text-xs text-muted">การชำระเงิน: ผู้ขายยืนยันการรับเงินในระบบ (เฟสถัดไปเพิ่ม PromptPay/แนบสลิปได้)</p>
     </div>
   );
 }

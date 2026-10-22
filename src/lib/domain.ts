@@ -42,14 +42,45 @@ export function assetState(leases: { status: string; endDate: Date; startDate: D
 }
 export const STATE_LABEL: Record<AssetState, string> = { VACANT: "ว่าง", OCCUPIED: "มีผู้เช่า", EXPIRING: "ใกล้หมดสัญญา", PENDING: "รออนุมัติ" };
 export const STATE_CLASS: Record<AssetState, string> = {
-  VACANT: "bg-slate-600 text-slate-200",
-  OCCUPIED: "bg-brand text-black",
-  EXPIRING: "bg-amber-500/90 text-black",
-  PENDING: "bg-sky-500/80 text-black",
+  VACANT: "bg-[#e5e5e5] text-ink2",
+  OCCUPIED: "bg-brand text-ink",
+  EXPIRING: "bg-orange-400 text-ink",
+  PENDING: "bg-sky-400 text-ink",
 };
 
 /* ---------- ผัง (floor plan) ---------- */
-export const CANVAS = { w: 1000, h: 600, grid: 10 };
+export const CANVAS = { w: 1000, h: 600, grid: 10, maxW: 3000, maxH: 2000 };
+
+/** มาตราส่วนผัง: 1 เมตร = 20 px (1 ช่องกริด = 0.5 ม.) */
+export const PX_PER_M = 20;
+export const MIN_ASSET_PX = PX_PER_M; // ห้อง/ช่องเล็กสุด 1 ม.
+export const toM = (px: number) => Math.round((px / PX_PER_M) * 10) / 10;
+export const toPx = (m: number) => Math.round(m * PX_PER_M);
+const n1 = (n: number) => (Math.round(n * 10) / 10).toLocaleString("th-TH");
+export const dimText = (w: number, h: number) => `${n1(toM(w))} × ${n1(toM(h))} ม.`;
+export const areaText = (w: number, h: number) => `${n1(toM(w) * toM(h))} ตร.ม.`;
+
+export type FeatureKind = "ZONE" | "ROAD" | "WALL" | "ENTRANCE" | "STAIRS" | "TOILET" | "OFFICE" | "TEXT";
+/** องค์ประกอบผังที่ไม่ได้ให้เช่า พร้อมขนาดเริ่มต้น; back=true วาดไว้ใต้ห้อง */
+export const FEATURES: Record<FeatureKind, { label: string; w: number; h: number; back?: boolean }> = {
+  ZONE: { label: "โซน/พื้นที่", w: 300, h: 200, back: true },
+  ROAD: { label: "ทางเดิน/ถนน", w: 400, h: 60, back: true },
+  WALL: { label: "ผนัง", w: 200, h: 10 },
+  ENTRANCE: { label: "ทางเข้า-ออก", w: 80, h: 40 },
+  STAIRS: { label: "บันได/ลิฟต์", w: 60, h: 60 },
+  TOILET: { label: "ห้องน้ำ", w: 60, h: 60 },
+  OFFICE: { label: "สำนักงาน", w: 100, h: 60 },
+  TEXT: { label: "ข้อความ", w: 160, h: 30 },
+};
+
+/** ค่าเริ่มต้นของตัวช่วยสร้างผังอัตโนมัติ ตามประเภทธุรกิจ */
+export const LAYOUT_PRESET: Record<Category, { prefix: string; w: number; h: number; gap: number; rows: number; cols: number; aisleEvery: number; aisle: number }> = {
+  STORAGE: { prefix: "A", w: 100, h: 70, gap: 10, rows: 4, cols: 6, aisleEvery: 2, aisle: 60 },
+  PARKING: { prefix: "P", w: 50, h: 100, gap: 0, rows: 2, cols: 12, aisleEvery: 1, aisle: 120 },
+  STALL: { prefix: "S", w: 80, h: 60, gap: 10, rows: 4, cols: 8, aisleEvery: 2, aisle: 70 },
+  CAR: { prefix: "C", w: 50, h: 100, gap: 10, rows: 1, cols: 8, aisleEvery: 0, aisle: 0 },
+  BOAT: { prefix: "B", w: 60, h: 140, gap: 20, rows: 1, cols: 6, aisleEvery: 0, aisle: 0 },
+};
 export function defaultBox(index: number) {
   return { x: 20 + (index % 8) * 120, y: 20 + Math.floor(index / 8) * 90, w: 100, h: 70 };
 }

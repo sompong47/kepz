@@ -1,25 +1,26 @@
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { db, shops } from "@/db";
-import { requireRole } from "@/lib/auth";
-import { addAsset as _a, deleteAsset, decideLease, markPaid } from "@/lib/actions";
-import { CATEGORIES, PERIOD, BILLING, assetState, baht, fmtDate } from "@/lib/domain";
+import { db, shops, floorsOf } from "@/db";
+import { requireUser } from "@/lib/auth";
+import { deleteAsset, decideLease, markPaid, toggleListed } from "@/lib/actions";
+import { CATEGORIES, PERIOD, BILLING, assetState, baht, defaultBox, dimText, fmtDate } from "@/lib/domain";
 import { AssetForm } from "@/components/Forms";
 import { StateBadge, Stat } from "@/components/ui";
 import FloorPlan from "@/components/FloorPlan";
+import { PublishBar } from "@/components/Listing";
 import { toFP } from "@/lib/floor";
 
 export const dynamic = "force-dynamic";
-void _a;
 
 export default async function ManageShop({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const u = await requireRole("SELLER", "ADMIN");
+  const u = await requireUser();
   const shop = await db.query.shops.findFirst({
     where: eq(shops.id, id),
-    with: { assets: { with: { leases: { with: { tenant: true, payments: true } } } } },
+    with: { features: true, assets: { with: { photos: true, leases: { with: { tenant: true, payments: true } } } } },
   });
   if (!shop || (u.role !== "ADMIN" && shop.ownerId !== u.id)) notFound();
+  const floors = await floorsOf(shop.id);
   const cat = CATEGORIES[shop.category];
   const assets = [...shop.assets].sort((a, b) => a.code.localeCompare(b.code, "th", { numeric: true }));
   const leases = assets.flatMap((a) => a.leases.map((l) => ({ ...l, asset: a })));
@@ -36,6 +37,12 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">{cat.icon} {shop.name}</h1>
 
+      <PublishBar
+        shopId={shop.id} published={shop.published} active={shop.active} unit={cat.unit}
+        total={assets.length} priced={assets.filter((a) => a.price > 0).length} listed={assets.filter((a) => a.listed).length}
+        unlistedIds={assets.filter((a) => !a.listed).map((a) => a.id)} hasPlan={shop.features.length > 0}
+      />
+
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Stat label="อัตราเข้าพัก" value={`${assets.length ? Math.round((occupied / assets.length) * 100) : 0}%`} />
         <Stat label="มีผู้เช่า / ทั้งหมด" value={`${occupied}/${assets.length}`} />
@@ -46,7 +53,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
 
       <section className="space-y-2">
         <h2 className="font-semibold">ผัง{cat.unit}</h2>
-        <FloorPlan shopId={shop.id} assets={toFP(assets, true)} unit={cat.unit} editable />
+        <FloorPlan shopId={shop.id} category={shop.category} floors={floors} features={shop.features} assets={toFP(assets, true, floors[0].id)} unit={cat.unit} editable />
       </section>
 
       {pending.length > 0 && (
@@ -54,7 +61,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
           <h2 className="font-semibold">คำขอเช่ารออนุมัติ ({pending.length})</h2>
           {pending.map((l) => (
             <div key={l.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
-              <div className="text-sm"><b>{l.asset.code}</b> · {l.tenant.name} {l.tenant.phone && `(${l.tenant.phone})`}<br /><span className="text-slate-400">{fmtDate(l.startDate)} – {fmtDate(l.endDate)} · {BILLING[l.billing]}</span></div>
+              <div className="text-sm"><b>{l.asset.code}</b> · {l.tenant.name} {l.tenant.phone && `(${l.tenant.phone})`}<br /><span className="text-muted">{fmtDate(l.startDate)} – {fmtDate(l.endDate)} · {BILLING[l.billing]}</span></div>
               <div className="flex gap-2">
                 <form action={decideLease.bind(null, l.id, "ACTIVE")}><button className="btn">อนุมัติ</button></form>
                 <form action={decideLease.bind(null, l.id, "REJECTED")}><button className="btn-ghost">ปฏิเสธ</button></form>
@@ -69,20 +76,20 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
         {active.map((l) => (
           <div key={l.id} className="border-t border-line pt-3 space-y-2">
             <div className="flex flex-wrap justify-between gap-2 text-sm">
-              <div><b>{l.asset.code}</b> · {l.tenant.name} · {baht(l.asset.price)}/{PERIOD[l.asset.period]}<br /><span className="text-slate-400">หมดสัญญา {fmtDate(l.endDate)}</span></div>
+              <div><b>{l.asset.code}</b> · {l.tenant.name} · {baht(l.asset.price)}/{PERIOD[l.asset.period]}<br /><span className="text-muted">หมดสัญญา {fmtDate(l.endDate)}</span></div>
               <form action={decideLease.bind(null, l.id, "ENDED")}><button className="btn-ghost">จบสัญญา</button></form>
             </div>
             <div className="flex flex-wrap gap-2">
               {[...l.payments].sort((a, b) => +a.dueDate - +b.dueDate).map((p) => (
                 <div key={p.id} className="rounded-lg bg-panel2 px-2.5 py-1.5 text-xs flex items-center gap-2">
                   <span>{fmtDate(p.dueDate)} · {baht(p.amount)}</span>
-                  {p.paidAt ? <span className="text-emerald-400">✓ ชำระแล้ว</span> : <form action={markPaid.bind(null, p.id)}><button className={`font-semibold ${+p.dueDate < Date.now() ? "text-red-400" : "text-brand"}`}>ยืนยันรับเงิน</button></form>}
+                  {p.paidAt ? <span className="text-ok">✓ ชำระแล้ว</span> : <form action={markPaid.bind(null, p.id)}><button className={`font-semibold ${+p.dueDate < Date.now() ? "text-danger" : "text-brand-ink"}`}>ยืนยันรับเงิน</button></form>}
                 </div>
               ))}
             </div>
           </div>
         ))}
-        {!active.length && <p className="text-sm text-slate-400">ยังไม่มีสัญญา</p>}
+        {!active.length && <p className="text-sm text-muted">ยังไม่มีสัญญา</p>}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">
@@ -92,9 +99,12 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
           <ul className="text-sm divide-y divide-line">
             {assets.map((a) => (
               <li key={a.id} className="py-2 flex items-center justify-between gap-2">
-                <span><b>{a.code}</b> {a.size} · {baht(a.price)}/{PERIOD[a.period]}</span>
+                <span><b>{a.code}</b> {a.size} · {dimText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)} · {baht(a.price)}/{PERIOD[a.period]}</span>
                 <span className="flex items-center gap-2"><StateBadge state={assetState(a.leases)} />
-                  <form action={deleteAsset.bind(null, a.id, shop.id)}><button className="text-red-400 text-xs">ลบ</button></form></span>
+                  <form action={toggleListed.bind(null, a.id, shop.id)}>
+                    <button className={`text-xs rounded-full px-2 py-0.5 cursor-pointer ${a.listed ? "bg-ok/10 text-ok" : "bg-panel2 text-muted"}`} title="คลิกเพื่อสลับ">{a.listed ? "เปิดให้เช่า" : "ปิดอยู่"}</button>
+                  </form>
+                  <form action={deleteAsset.bind(null, a.id, shop.id)}><button className="text-danger text-xs">ลบ</button></form></span>
               </li>
             ))}
           </ul>

@@ -32,4 +32,10 @@ export async function requireRole(...roles: Role[]) {
   if (!roles.includes(u.role)) redirect("/");
   return u;
 }
-export const homeFor = (r: Role) => (r === "ADMIN" ? "/admin" : r === "SELLER" ? "/seller" : "/tenant");
+/** บัญชีทั่วไปทำได้ทั้งเช่าและเปิดร้าน; แยกเฉพาะ ADMIN */
+export async function requireUser() {
+  const u = await getUser();
+  if (!u) redirect("/login");
+  return u;
+}
+export const homeFor = (r: Role) => (r === "ADMIN" ? "/admin" : "/tenant");

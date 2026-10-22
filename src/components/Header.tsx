@@ -1,19 +1,20 @@
 import Link from "next/link";
-import { getUser, homeFor } from "@/lib/auth";
+import { getUser } from "@/lib/auth";
 import { logout } from "@/lib/actions";
-
-const ROLE = { TENANT: "ผู้เช่า", SELLER: "ผู้ขาย", ADMIN: "แอดมิน" } as const;
+import { Wordmark } from "./Brand";
 
 export default async function Header() {
   const u = await getUser();
   return (
-    <header className="border-b border-line bg-panel/70 backdrop-blur sticky top-0 z-10">
-      <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
-        <Link href="/" className="text-2xl font-extrabold text-brand">kepz.</Link>
+    <header className="border-b border-line bg-bg/85 backdrop-blur sticky top-0 z-20">
+      <div className="mx-auto max-w-6xl px-4 h-16 flex items-center justify-between">
+        <Link href="/" aria-label="kepz หน้าแรก"><Wordmark /></Link>
         <nav className="flex items-center gap-2 text-sm">
           {u ? (
             <>
-              <Link href={homeFor(u.role)} className="btn-ghost">แดชบอร์ด · {ROLE[u.role]}</Link>
+              {u.role === "ADMIN" && <Link href="/admin" className="btn-ghost">แอดมิน</Link>}
+              <Link href="/tenant" className="btn-ghost">การเช่าของฉัน</Link>
+              <Link href="/seller" className="btn-ghost">ร้านของฉัน</Link>
               <form action={logout}><button className="btn-ghost">ออก</button></form>
             </>
           ) : (
