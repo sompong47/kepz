@@ -6,10 +6,10 @@ import * as schema from "./schema";
 const DDL = `
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, phone TEXT, password TEXT NOT NULL, role TEXT NOT NULL, created_at INTEGER);
-CREATE TABLE IF NOT EXISTS shops (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, category TEXT NOT NULL, location TEXT, phone TEXT, active INTEGER NOT NULL DEFAULT 1, owner_id TEXT NOT NULL REFERENCES users(id), created_at INTEGER);
+CREATE TABLE IF NOT EXISTS shops (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, category TEXT NOT NULL, location TEXT, map_url TEXT, cover_photo TEXT, phone TEXT, active INTEGER NOT NULL DEFAULT 1, owner_id TEXT NOT NULL REFERENCES users(id), created_at INTEGER);
 CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY, code TEXT NOT NULL, size TEXT, price INTEGER NOT NULL, period TEXT NOT NULL DEFAULT 'MONTH', note TEXT, shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE);
 CREATE UNIQUE INDEX IF NOT EXISTS assets_shop_code ON assets(shop_id, code);
-CREATE TABLE IF NOT EXISTS leases (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'PENDING', start_date INTEGER NOT NULL, end_date INTEGER NOT NULL, billing TEXT NOT NULL DEFAULT 'MONTH', asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE, tenant_id TEXT NOT NULL REFERENCES users(id), created_at INTEGER);
+CREATE TABLE IF NOT EXISTS leases (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'PENDING', start_date INTEGER NOT NULL, end_date INTEGER NOT NULL, billing TEXT NOT NULL DEFAULT 'MONTH', asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE, tenant_id TEXT NOT NULL REFERENCES users(id), guest_name TEXT, guest_phone TEXT, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS floors (id TEXT PRIMARY KEY, name TEXT NOT NULL, sort INTEGER NOT NULL DEFAULT 0, w INTEGER NOT NULL DEFAULT 1000, h INTEGER NOT NULL DEFAULT 600, shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS features (id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT, x INTEGER NOT NULL, y INTEGER NOT NULL, w INTEGER NOT NULL, h INTEGER NOT NULL, rot INTEGER NOT NULL DEFAULT 0, color TEXT, floor_id TEXT NOT NULL REFERENCES floors(id) ON DELETE CASCADE, shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS asset_photos (id TEXT PRIMARY KEY, file TEXT NOT NULL, mime TEXT NOT NULL, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE, created_at INTEGER);
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, amount INTEGER NOT NUL
 `;
 
 // เพิ่มเลขนี้เมื่อแก้ DDL/migrate เพื่อให้ dev server ที่เปิดค้างไว้รัน migrate ซ้ำ
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 9;
 const g = globalThis as unknown as { _sqlite?: Database.Database; _db?: ReturnType<typeof drizzle<typeof schema>>; _schemaVersion?: number };
 
 function migrate(sqlite: Database.Database) {
@@ -31,16 +31,21 @@ function migrate(sqlite: Database.Database) {
     sqlite.exec("ALTER TABLE assets ADD COLUMN listed INTEGER NOT NULL DEFAULT 0");
     sqlite.exec("UPDATE assets SET listed = 1 WHERE price > 0");
   }
-  // migrate: สถานะร้าน (ฉบับร่าง/เปิดให้เช่า); ร้านเดิมที่แสดงอยู่แล้วให้คงเปิดไว้
+  // migrate: สถานะร้าน (ฉบับร่าง/เปิดให้เช่า) + รูปหน้าร้านจริง + ลิงก์ Google Maps
   const scols = (sqlite.prepare("PRAGMA table_info(shops)").all() as { name: string }[]).map((c) => c.name);
   if (!scols.includes("published")) {
     sqlite.exec("ALTER TABLE shops ADD COLUMN published INTEGER NOT NULL DEFAULT 1");
-    // ร้านที่ยังไม่มีอะไรเปิดให้เช่า ให้เริ่มเป็นฉบับร่าง
     sqlite.exec("UPDATE shops SET published = 0 WHERE id NOT IN (SELECT shop_id FROM assets WHERE listed = 1)");
   }
+  if (!scols.includes("map_url")) sqlite.exec("ALTER TABLE shops ADD COLUMN map_url TEXT");
+  if (!scols.includes("cover_photo")) sqlite.exec("ALTER TABLE shops ADD COLUMN cover_photo TEXT");
+
   const fcols = (sqlite.prepare("PRAGMA table_info(features)").all() as { name: string }[]).map((c) => c.name);
   if (!fcols.includes("rot")) sqlite.exec("ALTER TABLE features ADD COLUMN rot INTEGER NOT NULL DEFAULT 0");
   if (!fcols.includes("color")) sqlite.exec("ALTER TABLE features ADD COLUMN color TEXT");
+  const lcols = (sqlite.prepare("PRAGMA table_info(leases)").all() as { name: string }[]).map((c) => c.name);
+  if (!lcols.includes("guest_name")) sqlite.exec("ALTER TABLE leases ADD COLUMN guest_name TEXT");
+  if (!lcols.includes("guest_phone")) sqlite.exec("ALTER TABLE leases ADD COLUMN guest_phone TEXT");
   // migrate: ร้านที่ยังไม่มีชั้น ให้สร้าง "ชั้น 1" แล้วย้ายรายการเดิมเข้าไป
   const noFloor = sqlite.prepare("SELECT id FROM shops WHERE id NOT IN (SELECT shop_id FROM floors)").all() as { id: string }[];
   for (const { id } of noFloor) {

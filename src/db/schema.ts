@@ -20,6 +20,8 @@ export const shops = sqliteTable("shops", {
   description: text("description"),
   category: text("category", { enum: ["STORAGE", "PARKING", "STALL", "CAR", "BOAT"] }).notNull(),
   location: text("location"),
+  mapUrl: text("map_url"),
+  coverPhoto: text("cover_photo"),
   phone: text("phone"),
   active: integer("active", { mode: "boolean" }).notNull().default(true), // แอดมินระงับได้
   published: integer("published", { mode: "boolean" }).notNull().default(false), // เจ้าของเปิดร้านให้เช่าแล้ว
@@ -71,7 +73,7 @@ export const floors = sqliteTable("floors", {
 /** องค์ประกอบผังที่ไม่ได้ให้เช่า เช่น ผนัง ทางเดิน ทางเข้า */
 export const features = sqliteTable("features", {
   id: id(),
-  kind: text("kind", { enum: ["ZONE", "ROAD", "WALL", "ENTRANCE", "STAIRS", "TOILET", "OFFICE", "TEXT"] }).notNull(),
+  kind: text("kind", { enum: ["ZONE", "ROAD", "WALL", "ENTRANCE", "STAIRS", "TOILET", "OFFICE", "TEXT", "WATER", "GREEN"] }).notNull(),
   label: text("label"),
   x: integer("x").notNull(),
   y: integer("y").notNull(),
@@ -91,6 +93,8 @@ export const leases = sqliteTable("leases", {
   billing: text("billing", { enum: ["MONTH", "HALF_YEAR", "YEAR"] }).notNull().default("MONTH"),
   assetId: text("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
   tenantId: text("tenant_id").notNull().references(() => users.id),
+  guestName: text("guest_name"),
+  guestPhone: text("guest_phone"),
   createdAt: createdAt(),
 });
 

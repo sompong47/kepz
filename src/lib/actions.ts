@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { db, users, shops, assets, leases, payments, floors, features, assetPhotos, floorsOf } from "@/db";
 import { MAX_BYTES, MAX_PER_ASSET, removePhotoFile, removePhotoFilesOf, savePhotoFile, sniffImage } from "./photos";
 import { createSession, destroySession, getUser, homeFor, requireRole, requireUser } from "./auth";
-import { buildPayments, CATEGORIES, CANVAS, FEATURES, MIN_ASSET_PX, defaultBox, toPx, type FeatureKind } from "./domain";
+import { buildPayments, CATEGORIES, CANVAS, FEATURES, FLOOR_TEMPLATES, MIN_ASSET_PX, defaultBox, toPx, type FeatureKind } from "./domain";
 
 export type FormState = { error?: string; ids?: string[] } | undefined;
 const s = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -49,11 +49,25 @@ export async function createShop(_: FormState, f: FormData): Promise<FormState> 
   const category = s(f, "category") as keyof typeof CATEGORIES;
   if (!(category in CATEGORIES)) return { error: "เลือกประเภทธุรกิจ" };
   if (s(f, "name").length < 2) return { error: "กรอกชื่อร้าน" };
+  let coverPhoto: string | null = null;
+  const cover = f.get("cover");
+  if (cover instanceof File && cover.size > 0) {
+    if (cover.size > MAX_BYTES) return { error: "รูปหน้าร้านต้องไม่เกิน 5MB" };
+    const data = new Uint8Array(await cover.arrayBuffer());
+    const kind = sniffImage(data);
+    if (!kind) return { error: "รองรับเฉพาะไฟล์รูป JPG, PNG, WEBP, GIF" };
+    coverPhoto = `${crypto.randomUUID()}.${kind.ext}`;
+    await savePhotoFile(coverPhoto, data);
+  }
   const [shop] = await db
     .insert(shops)
-    .values({ name: s(f, "name"), category, description: s(f, "description") || null, location: s(f, "location") || null, phone: s(f, "phone") || null, ownerId: u.id, published: false })
+    .values({ name: s(f, "name"), category, description: s(f, "description") || null, location: s(f, "location") || null, mapUrl: s(f, "mapUrl") || null, coverPhoto, phone: s(f, "phone") || null, ownerId: u.id, published: false })
     .returning();
-  await floorsOf(shop.id);
+  const [floor] = await floorsOf(shop.id);
+  const tplId = s(f, "templateId");
+  if (tplId && FLOOR_TEMPLATES.some((t) => t.id === tplId)) {
+    await applyTemplate(shop.id, floor.id, tplId);
+  }
   redirect(`/seller/shops/${shop.id}`);
 }
 
@@ -523,4 +537,183 @@ export async function toggleShop(shopId: string) {
   const sh = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (sh) await db.update(shops).set({ active: !sh.active }).where(eq(shops.id, shopId));
   revalidatePath("/admin");
+}
+
+
+/** ใช้แม่แบบผังสำเร็จรูป (สร้างทั้งโซน/ถนน/สิ่งอำนวยความสะดวก และรายการเช่าพร้อมราคาเริ่มต้นในคลิกเดียว) */
+export async function applyTemplate(shopId: string, floorId: string, templateId: string) {
+  const floor = await ownFloor(shopId, floorId);
+  const tpl = FLOOR_TEMPLATES.find((t) => t.id === templateId);
+  if (!tpl) return { error: "ไม่พบแม่แบบนี้", ids: [] as string[] };
+  const existingCodes = new Set((await db.query.assets.findMany({ where: eq(assets.shopId, shopId), columns: { code: true } })).map((a) => a.code));
+  const counters: Record<string, number> = {};
+  const nextCode = (prefix: string) => {
+    let n = (counters[prefix] ?? 0) + 1;
+    while (existingCodes.has(prefix + String(n).padStart(2, "0"))) n++;
+    counters[prefix] = n;
+    const c = prefix + String(n).padStart(2, "0");
+    existingCodes.add(c);
+    return c;
+  };
+  const yOff = (await floorBottom(floorId)) > 0 ? snap((await floorBottom(floorId)) + 30) : 0;
+  const needW = Math.max(floor.w, tpl.w);
+  const needH = Math.min(CANVAS.maxH, Math.max(floor.h, yOff + tpl.h));
+
+  const newFeats: (typeof features.$inferInsert)[] = tpl.features.map((f) => ({
+    shopId,
+    floorId,
+    kind: f.kind,
+    label: f.label ?? null,
+    color: f.color ?? null,
+    ...fit({ x: f.x, y: f.y + yOff, w: f.w, h: f.h, rot: f.rot ?? 0 }, { w: needW, h: needH }, 10),
+  }));
+
+  const newAssets: (typeof assets.$inferInsert)[] = tpl.assets.map((a) => ({
+    shopId,
+    floorId,
+    code: nextCode(a.prefix),
+    size: a.size,
+    price: a.price,
+    period: a.period,
+    listed: a.price > 0,
+    shape: a.shape ?? "RECT",
+    ...fit({ x: a.x, y: a.y + yOff, w: a.w, h: a.h, rot: a.rot ?? 0 }, { w: needW, h: needH }, MIN_ASSET_PX),
+  }));
+
+  const ids = db.transaction((tx) => {
+    if (needW > floor.w || needH > floor.h) {
+      tx.update(floors).set({ w: needW, h: needH }).where(eq(floors.id, floorId)).run();
+    }
+    const fRows = newFeats.length ? tx.insert(features).values(newFeats).returning({ id: features.id }).all() : [];
+    const aRows = newAssets.length ? tx.insert(assets).values(newAssets).returning({ id: assets.id }).all() : [];
+    return [...fRows, ...aRows].map((r) => r.id);
+  });
+
+  revalidatePath(`/seller/shops/${shopId}`);
+  return { error: undefined, ids };
+}
+
+
+/* ---------- แก้ไขข้อมูลร้าน / ลบร้าน / บันทึกผู้เช่าหน้าร้าน (Walk-in) ---------- */
+export async function updateShop(shopId: string, _: FormState, f: FormData): Promise<FormState> {
+  const shop = await ownShop(shopId);
+  const name = s(f, "name");
+  const category = s(f, "category") as keyof typeof CATEGORIES;
+  if (name.length < 2) return { error: "กรอกชื่อร้านอย่างน้อย 2 ตัวอักษร" };
+  if (!(category in CATEGORIES)) return { error: "เลือกประเภทธุรกิจ" };
+
+  let coverPhoto = shop.coverPhoto;
+  const cover = f.get("cover");
+  if (cover instanceof File && cover.size > 0) {
+    if (cover.size > MAX_BYTES) return { error: "รูปหน้าร้านต้องไม่เกิน 5MB" };
+    const data = new Uint8Array(await cover.arrayBuffer());
+    const kind = sniffImage(data);
+    if (!kind) return { error: "รองรับเฉพาะไฟล์รูป JPG, PNG, WEBP, GIF" };
+    if (shop.coverPhoto) await removePhotoFile(shop.coverPhoto);
+    coverPhoto = `${crypto.randomUUID()}.${kind.ext}`;
+    await savePhotoFile(coverPhoto, data);
+  }
+
+  await db
+    .update(shops)
+    .set({
+      name,
+      category,
+      location: s(f, "location") || null,
+      mapUrl: s(f, "mapUrl") || null,
+      coverPhoto,
+      phone: s(f, "phone") || null,
+      description: s(f, "description") || null,
+    })
+    .where(eq(shops.id, shopId));
+  revalidatePath("/", "layout");
+  return { error: undefined, ids: ["saved"] };
+}
+
+export async function uploadShopCover(shopId: string, f: FormData): Promise<FormState> {
+  const shop = await ownShop(shopId);
+  const file = f.get("file");
+  if (!(file instanceof File) || !file.size) return { error: "ไม่พบไฟล์รูป" };
+  if (file.size > MAX_BYTES) return { error: "ไฟล์ใหญ่เกิน 5MB" };
+  const data = new Uint8Array(await file.arrayBuffer());
+  const kind = sniffImage(data);
+  if (!kind) return { error: "รองรับเฉพาะ JPG, PNG, WEBP, GIF" };
+  if (shop.coverPhoto) await removePhotoFile(shop.coverPhoto);
+  const name = `${crypto.randomUUID()}.${kind.ext}`;
+  await savePhotoFile(name, data);
+  await db.update(shops).set({ coverPhoto: name }).where(eq(shops.id, shopId));
+  revalidatePath("/", "layout");
+  return { error: undefined };
+}
+
+export async function deleteShopCover(shopId: string) {
+  const shop = await ownShop(shopId);
+  if (shop.coverPhoto) {
+    await removePhotoFile(shop.coverPhoto);
+    await db.update(shops).set({ coverPhoto: null }).where(eq(shops.id, shopId));
+    revalidatePath("/", "layout");
+  }
+}
+
+export async function deleteShop(shopId: string): Promise<FormState> {
+  await ownShop(shopId);
+  const shopAssets = await db.query.assets.findMany({ where: eq(assets.shopId, shopId), with: { leases: true } });
+  const hasActive = shopAssets.some((a) => a.leases.some((l) => l.status === "ACTIVE"));
+  if (hasActive) return { error: "ไม่สามารถลบร้านได้เนื่องจากยังมีสัญญาเช่าที่กำลังใช้งานอยู่ (กดจบสัญญาก่อนลบร้าน)" };
+  await removePhotoFilesOf(shopAssets.map((a) => a.id));
+  await db.delete(shops).where(eq(shops.id, shopId));
+  revalidatePath("/", "layout");
+  redirect("/seller");
+}
+
+export async function createWalkInLease(shopId: string, _: FormState, f: FormData): Promise<FormState> {
+  await ownShop(shopId);
+  const u = await requireUser();
+  const assetId = s(f, "assetId");
+  const guestName = s(f, "guestName");
+  const guestPhone = s(f, "guestPhone") || null;
+  if (!assetId) return { error: "เลือกรายการที่ต้องการลงผู้เช่า" };
+  if (guestName.length < 2) return { error: "กรอกชื่อผู้เช่าอย่างน้อย 2 ตัวอักษร" };
+
+  const asset = await db.query.assets.findFirst({ where: and(eq(assets.id, assetId), eq(assets.shopId, shopId)) });
+  if (!asset) return { error: "ไม่พบรายการเช่านี้ในร้าน" };
+  if (asset.price <= 0) return { error: "กรุณาตั้งราคาของรายการนี้ก่อนลงสัญญาเช่า" };
+
+  const start = new Date(s(f, "start"));
+  const end = new Date(s(f, "end"));
+  if (isNaN(+start) || isNaN(+end)) return { error: "เลือกวันที่เริ่มและวันสิ้นสุด" };
+  if (+end <= +start) return { error: "วันสิ้นสุดต้องหลังวันเริ่ม" };
+  if (await hasOverlap(asset.id, start, end)) return { error: "ช่วงเวลานี้มีสัญญาเช่าที่ใช้งานอยู่แล้ว" };
+
+  const b = s(f, "billing");
+  const billing = b === "HALF_YEAR" || b === "YEAR" ? b : "MONTH";
+  const paidFirst = f.get("paidFirst") === "on";
+
+  const [lease] = await db
+    .insert(leases)
+    .values({
+      assetId: asset.id,
+      tenantId: u.id,
+      guestName,
+      guestPhone,
+      status: "ACTIVE",
+      startDate: start,
+      endDate: end,
+      billing,
+    })
+    .returning();
+
+  const rows = buildPayments({ price: asset.price, period: asset.period, start, end, billing });
+  if (rows.length) {
+    await db.insert(payments).values(
+      rows.map((r, i) => ({
+        ...r,
+        leaseId: lease.id,
+        paidAt: paidFirst && i === 0 ? new Date() : null,
+      })),
+    );
+  }
+
+  revalidatePath("/", "layout");
+  return { error: undefined, ids: [lease.id] };
 }
