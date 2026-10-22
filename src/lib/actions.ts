@@ -43,6 +43,14 @@ export async function logout() {
   redirect("/");
 }
 
+/** เข้าสู่ระบบบัญชีตัวอย่าง (Demo) ในคลิกเดียว เพื่อให้หัวหน้า/ผู้ทดสอบสลับบทบาทได้ทันที */
+export async function demoQuickLogin(email: string, redirectTo?: string) {
+  const u = await db.query.users.findFirst({ where: eq(users.email, email.toLowerCase()) });
+  if (!u) redirect("/login");
+  await createSession(u.id);
+  redirect(redirectTo ?? (u.role === "SELLER" ? "/seller" : homeFor(u.role)));
+}
+
 /* ---------- Seller: ร้าน & ทรัพย์สิน ---------- */
 export async function createShop(_: FormState, f: FormData): Promise<FormState> {
   const u = await requireUser();

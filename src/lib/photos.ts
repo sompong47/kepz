@@ -1,10 +1,12 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { inArray } from "drizzle-orm";
 import { db, assetPhotos } from "@/db";
 
-/** ไฟล์รูปเก็บนอก public/ แล้วเสิร์ฟผ่าน /api/photos/[id] (โฟลเดอร์ public ไม่รับไฟล์ใหม่หลัง build) */
-const DIR = path.resolve(process.env.UPLOAD_DIR ?? "uploads");
+/** ไฟล์รูปเก็บนอก public/ แล้วเสิร์ฟผ่าน /api/photos/[id] (บน Vercel ใช้ /tmp/kepz-uploads เนื่องจากโฟลเดอร์โค้ดเป็น read-only) */
+const defaultUploadDir = process.env.VERCEL ? path.join(os.tmpdir(), "kepz-uploads") : "uploads";
+const DIR = path.resolve(process.env.UPLOAD_DIR ?? defaultUploadDir);
 export const MAX_BYTES = 5 * 1024 * 1024;
 export const MAX_PER_ASSET = 10;
 

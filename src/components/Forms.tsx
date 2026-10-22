@@ -2,7 +2,7 @@
 import { useActionState, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  login, register, createShop, updateShop, deleteShop, uploadShopCover, deleteShopCover,
+  login, register, demoQuickLogin, createShop, updateShop, deleteShop, uploadShopCover, deleteShopCover,
   addAsset, requestLease, createWalkInLease, type FormState,
 } from "@/lib/actions";
 import { CATEGORIES, BILLING, FLOOR_TEMPLATES, baht, buildPayments, daysBetween, fmtDate, type Category } from "@/lib/domain";
@@ -30,15 +30,47 @@ async function shrinkImage(file: File): Promise<Blob> {
 
 export function LoginForm() {
   const [st, act, pending] = useActionState(login, undefined);
+  const [demoPending, startDemo] = useTransition();
+
+  const DEMO_ACCOUNTS = [
+    { label: "🏪 ทดสอบฝั่งเจ้าของร้าน (สร้างผัง / อนุมัติสัญญา / Walk-in)", email: "seller@kepz.test", sub: "คุณสมชาย · seller@kepz.test", to: "/seller" },
+    { label: "👤 ทดสอบฝั่งผู้เช่า (เลือกห้องในผัง / ส่งคำขอเช่า / ดูบิล)", email: "tenant@kepz.test", sub: "คุณมานี · tenant@kepz.test", to: "/tenant" },
+    { label: "🛡️ ทดสอบฝั่งแอดมิน (ดูภาพรวมระบบ / ระงับร้าน)", email: "admin@kepz.test", sub: "แอดมิน · admin@kepz.test", to: "/admin" },
+  ];
+
   return (
-    <form action={act} className="card space-y-4 max-w-md mx-auto">
-      <h1 className="text-xl font-bold">เข้าสู่ระบบ</h1>
-      <F label="อีเมล"><input name="email" type="email" required className="input" /></F>
-      <F label="รหัสผ่าน"><input name="password" type="password" required className="input" /></F>
-      <Err s={st} />
-      <button className="btn w-full" disabled={pending}>{pending ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}</button>
-      <p className="text-sm text-muted text-center">ยังไม่มีบัญชี? <Link href="/register" className="text-brand-ink">สมัครสมาชิก</Link></p>
-    </form>
+    <div className="max-w-md mx-auto space-y-4">
+      <div className="card space-y-2.5 border-brand bg-brand/10">
+        <div className="flex items-center justify-between">
+          <span className="font-bold text-sm">⚡ เข้าสู่ระบบด่วนสำหรับทดสอบ (Demo)</span>
+          <span className="text-[11px] rounded-full bg-brand px-2 py-0.5 font-semibold">คลิกเดียวเข้าได้เลย</span>
+        </div>
+        <p className="text-xs text-ink2">เลือกบทบาทที่ต้องการทดสอบโดยไม่ต้องพิมพ์รหัสผ่าน (รหัสผ่านทุกบัญชีคือ <code className="font-mono">password123</code>)</p>
+        <div className="grid gap-2 pt-1">
+          {DEMO_ACCOUNTS.map((acc) => (
+            <button
+              key={acc.email}
+              type="button"
+              disabled={demoPending || pending}
+              onClick={() => startDemo(async () => { await demoQuickLogin(acc.email, acc.to); })}
+              className="text-left rounded-xl border border-line bg-panel hover:border-brand hover:bg-white px-3.5 py-2.5 transition cursor-pointer shadow-2xs disabled:opacity-50"
+            >
+              <div className="font-semibold text-xs sm:text-sm text-ink">{acc.label}</div>
+              <div className="text-[11px] text-muted mt-0.5">{acc.sub}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <form action={act} className="card space-y-4">
+        <h1 className="text-xl font-bold">เข้าสู่ระบบด้วยอีเมล</h1>
+        <F label="อีเมล"><input name="email" type="email" required className="input" placeholder="seller@kepz.test" /></F>
+        <F label="รหัสผ่าน"><input name="password" type="password" required className="input" placeholder="password123" /></F>
+        <Err s={st} />
+        <button className="btn w-full" disabled={pending || demoPending}>{pending ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}</button>
+        <p className="text-sm text-muted text-center">ยังไม่มีบัญชี? <Link href="/register" className="text-brand-ink">สมัครสมาชิก</Link></p>
+      </form>
+    </div>
   );
 }
 

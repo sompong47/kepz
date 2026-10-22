@@ -579,7 +579,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   });
 
   const run = (fn: () => Promise<string | null | undefined>) => start(async () => { const id = await fn(); if (id) { setSel(id); setGen(false); record({ t: "create", ids: [id] }); } });
-  const useTemplate = (tplId: string) => {
+  const handleApplyTemplate = (tplId: string) => {
     if (!floor || busy.current) return;
     start(async () => {
       const r = await applyTemplate(shopId, floor.id, tplId);
@@ -835,7 +835,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
                         <button
                           type="button"
                           disabled={pendingTpl}
-                          onClick={() => useTemplate(t.id)}
+                          onClick={() => handleApplyTemplate(t.id)}
                           className="btn !py-1 !px-3 text-xs"
                         >
                           {pendingTpl ? "กำลังสร้าง…" : "＋ ใช้แม่แบบนี้"}
@@ -966,7 +966,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
                             <button
                               type="button"
                               disabled={pendingTpl}
-                              onClick={() => useTemplate(catTemplates[0].id)}
+                              onClick={() => handleApplyTemplate(catTemplates[0].id)}
                               className="btn"
                             >
                               {pendingTpl ? "กำลังสร้างผัง…" : `✨ สร้างผังด้วยแม่แบบ${CATEGORIES[category].label} (แนะนำ)`}
