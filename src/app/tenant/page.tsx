@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, leases, shops } from "@/db";
 import { requireUser } from "@/lib/auth";
 import { cancelLease } from "@/lib/actions";
@@ -13,14 +13,14 @@ const ST = { PENDING: "รออนุมัติ", ACTIVE: "กำลังเ
 export default async function Tenant() {
   const u = await requireUser();
   const rows = await db.query.leases.findMany({
-    where: eq(leases.tenantId, u.id),
+    where: and(eq(leases.tenantId, u.id), isNull(leases.guestName)),
     orderBy: desc(leases.createdAt),
     with: { asset: { with: { shop: true } }, payments: true },
   });
   // ร้านที่เปิดให้เช่า (รวมร้านของตัวเอง ซึ่งเช่าเองได้)
   const open = await db.query.shops.findMany({
     where: and(eq(shops.active, true), eq(shops.published, true)),
-    with: { assets: { with: { leases: true } } },
+    with: { features: true, assets: { with: { photos: true, leases: true } } },
   });
   const now = Date.now();
   const allPay = rows.filter((l) => l.status === "ACTIVE").flatMap((l) => l.payments);

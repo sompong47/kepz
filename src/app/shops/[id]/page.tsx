@@ -3,7 +3,7 @@ import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db, shops, floorsOf } from "@/db";
 import { getUser } from "@/lib/auth";
-import { CATEGORIES, PERIOD, areaText, assetState, baht, defaultBox, dimText, fmtDate } from "@/lib/domain";
+import { CATEGORIES, PERIOD, areaText, assetState, baht, defaultBox, dimText, fmtDate, googleMapsHref } from "@/lib/domain";
 import { RentForm } from "@/components/Forms";
 import { StateBadge } from "@/components/ui";
 import FloorPlan from "@/components/FloorPlan";
@@ -25,6 +25,8 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
   const cat = CATEGORIES[shop.category];
   const assets = [...shop.assets].filter((a) => a.listed && a.price > 0).sort((a, b) => a.code.localeCompare(b.code, "th", { numeric: true }));
   const vacant = assets.filter((a) => assetState(a.leases) === "VACANT").length;
+  const mapHref = googleMapsHref(shop.location, shop.mapUrl, shop.name);
+
   return (
     <div className="space-y-6">
       {isOwner && (
@@ -33,13 +35,45 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
           <Link href={`/seller/shops/${shop.id}`} className="btn-dark !py-1.5">กลับไปจัดการร้าน</Link>
         </div>
       )}
-      <div>
-        <div className="text-sm text-muted">{cat.icon} {cat.label}</div>
-        <h1 className="text-3xl font-bold">{shop.name}</h1>
-        <p className="text-muted">{[shop.location, shop.phone].filter(Boolean).join(" · ")}</p>
-        {shop.description && <p className="mt-2">{shop.description}</p>}
+
+      <div className="grid gap-5 md:grid-cols-[1.3fr_1fr] items-center">
+        <div>
+          <div className="text-sm text-muted font-medium">{cat.icon} {cat.label}</div>
+          <h1 className="text-3xl font-bold mt-1">{shop.name}</h1>
+          <div className="flex flex-wrap items-center gap-2 mt-2 text-sm">
+            {mapHref && (
+              <a
+                href={mapHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-panel border border-line hover:border-brand hover:bg-brand/15 px-3 py-1.5 text-xs font-medium text-ink transition shadow-2xs"
+              >
+                <span>📍 {shop.location || "ดูตำแหน่งร้าน"}</span>
+                <span className="text-brand-ink font-semibold">· เปิดใน Google Maps ↗</span>
+              </a>
+            )}
+            {shop.phone && (
+              <a href={`tel:${shop.phone}`} className="inline-flex items-center gap-1 rounded-xl bg-panel border border-line px-3 py-1.5 text-xs text-ink2">
+                📞 {shop.phone}
+              </a>
+            )}
+          </div>
+          {shop.description && <p className="mt-3 text-sm text-ink2 leading-relaxed">{shop.description}</p>}
+        </div>
+
+        {shop.coverPhoto && (
+          <div className="rounded-2xl border border-line overflow-hidden bg-panel2 aspect-[16/9] shadow-xs">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/api/photos/${shop.coverPhoto}`} alt={shop.name} className="size-full object-cover" />
+          </div>
+        )}
       </div>
-      <FloorPlan shopId={shop.id} category={shop.category} floors={floors} features={shop.features} assets={fp} unit={cat.unit} canRent={canRent} />
+
+      <section className="space-y-2">
+        <h2 className="font-bold text-lg">🗺️ ผังสถานที่และเลือกตำแหน่ง{cat.unit}เช่า</h2>
+        <FloorPlan shopId={shop.id} category={shop.category} floors={floors} features={shop.features} assets={fp} unit={cat.unit} canRent={canRent} />
+      </section>
+
       <h2 className="font-semibold">พื้นที่ที่เปิดให้เช่า ({assets.length}) · <span className="text-ok">ว่าง {vacant}</span></h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {assets.map((a) => {
