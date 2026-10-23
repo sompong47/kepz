@@ -233,11 +233,34 @@ function autoSeedIfEmpty(sqlite: Database.Database, d: ReturnType<typeof drizzle
   mkLease(parkingAssets[1], tenant2.id, -15, 20, "ACTIVE");
 }
 
-const defaultDbFile = process.env.VERCEL ? path.join(os.tmpdir(), "kepz-demo.db") : "kepz.db";
+function openSqlite(): Database.Database {
+  // 1) ถ้าตั้งค่า DB_FILE ไว้ หรือรันในเครื่อง Local ให้ลองเปิดไฟล์ปกติก่อน
+  const candidates = process.env.DB_FILE
+    ? [process.env.DB_FILE]
+    : process.env.VERCEL
+      ? [path.join(os.tmpdir(), "kepz-demo.db")]
+      : ["kepz.db", path.join(os.tmpdir(), "kepz-demo.db")];
+
+  for (const file of candidates) {
+    try {
+      const dbInstance = new Database(file);
+      try {
+        dbInstance.pragma("journal_mode = WAL");
+      } catch {
+        // บาง filesystem เช่น /tmp บน serverless อาจไม่รองรับ WAL ให้ใช้โหมดปกติแทน
+      }
+      return dbInstance;
+    } catch {
+      // ถ้าเปิดไฟล์ไม่ได้ (เช่น Read-only filesystem บน Vercel) ให้ลองตัวถัดไป
+    }
+  }
+
+  // 2) Fallback สุดท้าย: ใช้ In-Memory Database (:memory:) รับประกันว่าเปิดได้ 100% บนทุก Serverless
+  return new Database(":memory:");
+}
 
 if (!g._sqlite) {
-  g._sqlite = new Database(process.env.DB_FILE ?? defaultDbFile);
-  g._sqlite.pragma("journal_mode = WAL");
+  g._sqlite = openSqlite();
 }
 if (g._schemaVersion !== SCHEMA_VERSION) {
   migrate(g._sqlite);
