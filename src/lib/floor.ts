@@ -2,7 +2,7 @@ import { assetState, defaultBox, type AssetState, type FeatureKind } from "./dom
 
 export type FPFloor = { id: string; name: string; w: number; h: number };
 export type FPFeature = { id: string; floorId: string; kind: FeatureKind; label: string | null; x: number; y: number; w: number; h: number; rot: number; color: string | null };
-export type FPPayment = { id: string; amount: number; due: number; paid: number | null };
+export type FPPayment = { id: string; amount: number; due: number; paid: number | null; slip: string | null };
 export type FPAsset = {
   id: string; floorId: string; code: string; size: string | null; price: number; period: "DAY" | "MONTH"; note: string | null;
   x: number; y: number; w: number; h: number; rot: number; shape: "RECT" | "CIRCLE"; listed: boolean;
@@ -18,7 +18,7 @@ type Src = {
     id: string; status: string; startDate: Date; endDate: Date; billing: string;
     guestName?: string | null; guestPhone?: string | null;
     tenant?: { name: string; phone: string | null };
-    payments?: { id: string; amount: number; dueDate: Date; paidAt: Date | null }[];
+    payments?: { id: string; amount: number; dueDate: Date; paidAt: Date | null; slip?: string | null }[];
   }[];
 };
 
@@ -47,7 +47,7 @@ export function toFP(rows: Src[], detail: boolean, firstFloorId: string): FPAsse
             start: +active.startDate,
             end: +active.endDate,
             billing: active.billing,
-            payments: (active.payments ?? []).map((p) => ({ id: p.id, amount: p.amount, due: +p.dueDate, paid: p.paidAt ? +p.paidAt : null })).sort((x, y) => x.due - y.due),
+            payments: (active.payments ?? []).map((p) => ({ id: p.id, amount: p.amount, due: +p.dueDate, paid: p.paidAt ? +p.paidAt : null, slip: p.slip ?? null })).sort((x, y) => x.due - y.due),
           }
         : null,
     };

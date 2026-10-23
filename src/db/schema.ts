@@ -23,6 +23,13 @@ export const shops = sqliteTable("shops", {
   mapUrl: text("map_url"),
   coverPhoto: text("cover_photo"),
   phone: text("phone"),
+  // ช่องทางรับเงินจากผู้เช่า
+  payBank: text("pay_bank"),
+  payAccountNo: text("pay_account_no"),
+  payAccountName: text("pay_account_name"),
+  payPromptpay: text("pay_promptpay"),
+  payQr: text("pay_qr"), // ชื่อไฟล์รูป QR ใน uploads/
+  payNote: text("pay_note"),
   active: integer("active", { mode: "boolean" }).notNull().default(true), // แอดมินระงับได้
   published: integer("published", { mode: "boolean" }).notNull().default(false), // เจ้าของเปิดร้านให้เช่าแล้ว
   ownerId: text("owner_id").notNull().references(() => users.id),
@@ -95,6 +102,7 @@ export const leases = sqliteTable("leases", {
   tenantId: text("tenant_id").notNull().references(() => users.id),
   guestName: text("guest_name"),
   guestPhone: text("guest_phone"),
+  slip: text("slip"), // สลิปงวดแรกที่แนบมากับคำขอเช่า (ย้ายไปผูกกับงวดแรกตอนอนุมัติ)
   createdAt: createdAt(),
 });
 
@@ -103,6 +111,8 @@ export const payments = sqliteTable("payments", {
   amount: integer("amount").notNull(),
   dueDate: integer("due_date", { mode: "timestamp_ms" }).notNull(),
   paidAt: integer("paid_at", { mode: "timestamp_ms" }),
+  slip: text("slip"), // ชื่อไฟล์สลิปโอนเงินใน uploads/
+  slipAt: integer("slip_at", { mode: "timestamp_ms" }),
   leaseId: text("lease_id").notNull().references(() => leases.id, { onDelete: "cascade" }),
 });
 

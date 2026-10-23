@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { db, users, shops, assets, leases, payments, floors, features, assetPhotos, floorsOf } from "@/db";
 import { MAX_BYTES, MAX_PER_ASSET, removePhotoFile, removePhotoFilesOf, savePhotoFile, sniffImage } from "./photos";
 import { createSession, destroySession, getUser, homeFor, requireRole, requireUser } from "./auth";
-import { buildPayments, CATEGORIES, CANVAS, FEATURES, FLOOR_TEMPLATES, MIN_ASSET_PX, defaultBox, toPx, type FeatureKind } from "./domain";
+import { buildPayments, CATEGORIES, CANVAS, FEATURES, FLOOR_TEMPLATES, MIN_ASSET_PX, defaultBox, toPx, type FeatureKind, hasPayInfo } from "./domain";
 
 export type FormState = { error?: string; ids?: string[] } | undefined;
 const s = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -126,9 +126,10 @@ export async function deleteAsset(assetId: string, shopId: string) {
 /* ---------- เปิดให้เช่า ---------- */
 /** เปิด/ปิดร้าน; จะเปิดได้ต้องมีอย่างน้อย 1 รายการที่เปิดให้เช่า */
 export async function setShopPublished(shopId: string, published: boolean): Promise<FormState> {
-  await ownShop(shopId);
+  const shop = await ownShop(shopId);
   if (published && !(await db.query.assets.findFirst({ where: and(eq(assets.shopId, shopId), eq(assets.listed, true)) })))
     return { error: "ยังไม่มีรายการที่เปิดให้เช่า — ตั้งราคาและเปิดให้เช่าอย่างน้อย 1 รายการก่อน" };
+  if (published && !hasPayInfo(shop)) return { error: "ยังไม่ได้ตั้งช่องทางรับเงิน — ใส่บัญชีธนาคาร พร้อมเพย์ หรือรูป QR ก่อนเปิดร้าน" };
   await db.update(shops).set({ published: !!published }).where(eq(shops.id, shopId));
   revalidatePath("/", "layout");
   return { error: undefined };
@@ -201,7 +202,8 @@ export async function decideLease(leaseId: string, decision: "ACTIVE" | "REJECTE
     if (clash) return;
     await db.update(leases).set({ status: "ACTIVE" }).where(eq(leases.id, leaseId));
     const rows = buildPayments({ price: lease.asset.price, period: lease.asset.period, start: lease.startDate, end: lease.endDate, billing: lease.billing });
-    await db.insert(payments).values(rows.map((r) => ({ ...r, leaseId })));
+    // สลิปที่แนบมาตอนขอเช่า = สลิปของงวดแรก
+    await db.insert(payments).values(rows.map((r, i) => ({ ...r, leaseId, ...(i === 0 && lease.slip && { slip: lease.slip, slipAt: lease.createdAt ?? new Date() }) })));
   } else {
     await db.update(leases).set({ status: decision }).where(eq(leases.id, leaseId));
   }
@@ -529,7 +531,15 @@ export async function requestLease(assetId: string, _: FormState, f: FormData): 
   if (await hasOverlap(assetId, start, end)) return { error: "ช่วงเวลานี้มีผู้เช่าแล้ว" };
   const b = s(f, "billing");
   const billing = b === "HALF_YEAR" || b === "YEAR" ? b : "MONTH";
-  await db.insert(leases).values({ assetId, tenantId: u.id, startDate: start, endDate: end, billing });
+  // สลิปงวดแรก (ไม่บังคับ)
+  const slipFile = f.get("slip");
+  let slip: string | null = null;
+  if (slipFile instanceof File && slipFile.size) {
+    const r = await storeSlip(slipFile);
+    if ("error" in r) return r;
+    slip = r.name;
+  }
+  await db.insert(leases).values({ assetId, tenantId: u.id, startDate: start, endDate: end, billing, slip });
   redirect("/tenant");
 }
 
@@ -636,6 +646,68 @@ export async function updateShop(shopId: string, _: FormState, f: FormData): Pro
     .where(eq(shops.id, shopId));
   revalidatePath("/", "layout");
   return { error: undefined, ids: ["saved"] };
+}
+
+/** บันทึกช่องทางรับเงิน: บัญชีธนาคาร / พร้อมเพย์ / รูป QR (อย่างน้อย 1 ทาง) */
+export async function savePaymentInfo(shopId: string, _: FormState, f: FormData): Promise<FormState> {
+  const shop = await ownShop(shopId);
+  const bank = s(f, "payBank").slice(0, 60);
+  const accountNo = s(f, "payAccountNo").replace(/[^\d-]/g, "").slice(0, 30);
+  const accountName = s(f, "payAccountName").slice(0, 100);
+  const promptpay = s(f, "payPromptpay").replace(/\D/g, "");
+  const note = s(f, "payNote").slice(0, 300);
+  if ((bank || accountNo || accountName) && !(bank && accountNo && accountName)) return { error: "กรอกธนาคาร เลขบัญชี และชื่อบัญชีให้ครบ" };
+  if (accountNo && accountNo.replace(/\D/g, "").length < 10) return { error: "เลขบัญชีต้องมีอย่างน้อย 10 หลัก" };
+  if (promptpay && promptpay.length !== 10 && promptpay.length !== 13) return { error: "พร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก หรือเลขบัตรประชาชน 13 หลัก" };
+
+  let qr = shop.payQr;
+  const file = f.get("payQrFile");
+  if (file instanceof File && file.size) {
+    if (file.size > MAX_BYTES) return { error: "รูป QR ใหญ่เกิน 5MB" };
+    const data = new Uint8Array(await file.arrayBuffer());
+    const kind = sniffImage(data);
+    if (!kind) return { error: "รูป QR รองรับเฉพาะ JPG, PNG, WEBP, GIF" };
+    if (qr) await removePhotoFile(qr);
+    qr = `${crypto.randomUUID()}.${kind.ext}`;
+    await savePhotoFile(qr, data);
+  } else if (f.get("removeQr") === "on" && qr) {
+    await removePhotoFile(qr);
+    qr = null;
+  }
+  const info = { payBank: bank || null, payAccountNo: accountNo || null, payAccountName: accountName || null, payPromptpay: promptpay || null, payQr: qr, payNote: note || null };
+  if (!hasPayInfo(info)) return { error: "ใส่ช่องทางรับเงินอย่างน้อย 1 ทาง: บัญชีธนาคาร พร้อมเพย์ หรือรูป QR" };
+  await db.update(shops).set(info).where(eq(shops.id, shopId));
+  revalidatePath("/", "layout");
+  return { error: undefined };
+}
+
+/* ---------- สลิปโอนเงิน ---------- */
+async function storeSlip(file: File): Promise<{ name: string } | { error: string }> {
+  if (file.size > MAX_BYTES) return { error: "รูปสลิปใหญ่เกิน 5MB" };
+  const data = new Uint8Array(await file.arrayBuffer());
+  const kind = sniffImage(data);
+  if (!kind) return { error: "สลิปต้องเป็นรูป JPG, PNG, WEBP หรือ GIF" };
+  const name = `${crypto.randomUUID()}.${kind.ext}`;
+  await savePhotoFile(name, data);
+  return { name };
+}
+
+/** ผู้เช่าแนบสลิปของงวดที่ยังไม่ชำระ (แนบใหม่ = แทนที่สลิปเดิม) */
+export async function uploadPaymentSlip(paymentId: string, f: FormData): Promise<FormState> {
+  const u = await requireUser();
+  const pay = await db.query.payments.findFirst({ where: eq(payments.id, paymentId), with: { lease: true } });
+  if (!pay || pay.lease.tenantId !== u.id) return { error: "ไม่พบงวดชำระนี้" };
+  if (pay.paidAt) return { error: "งวดนี้ยืนยันรับเงินแล้ว" };
+  const file = f.get("file");
+  if (!(file instanceof File) || !file.size) return { error: "เลือกรูปสลิปก่อน" };
+  const r = await storeSlip(file);
+  if ("error" in r) return r;
+  // สลิปเดิมลบได้เฉพาะเมื่อไม่ได้ใช้ร่วมกับคำขอเช่า
+  if (pay.slip && pay.slip !== pay.lease.slip) await removePhotoFile(pay.slip);
+  await db.update(payments).set({ slip: r.name, slipAt: new Date() }).where(eq(payments.id, paymentId));
+  revalidatePath("/tenant");
+  revalidatePath("/seller", "layout");
+  return { error: undefined };
 }
 
 export async function uploadShopCover(shopId: string, f: FormData): Promise<FormState> {

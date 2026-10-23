@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, amount INTEGER NOT NUL
 `;
 
 // เพิ่มเลขนี้เมื่อแก้ DDL/migrate เพื่อให้ dev server ที่เปิดค้างไว้รัน migrate ซ้ำ
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 12;
 const g = globalThis as unknown as { _sqlite?: Database.Database; _db?: ReturnType<typeof drizzle<typeof schema>>; _schemaVersion?: number };
 
 function migrate(sqlite: Database.Database) {
@@ -43,6 +43,9 @@ function migrate(sqlite: Database.Database) {
   }
   if (!scols.includes("map_url")) sqlite.exec("ALTER TABLE shops ADD COLUMN map_url TEXT");
   if (!scols.includes("cover_photo")) sqlite.exec("ALTER TABLE shops ADD COLUMN cover_photo TEXT");
+  // migrate: ช่องทางรับเงินของร้าน (บัญชีธนาคาร / พร้อมเพย์ / รูป QR)
+  for (const c of ["pay_bank", "pay_account_no", "pay_account_name", "pay_promptpay", "pay_qr", "pay_note"])
+    if (!scols.includes(c)) sqlite.exec(`ALTER TABLE shops ADD COLUMN ${c} TEXT`);
 
   const fcols = (sqlite.prepare("PRAGMA table_info(features)").all() as { name: string }[]).map((c) => c.name);
   if (!fcols.includes("rot")) sqlite.exec("ALTER TABLE features ADD COLUMN rot INTEGER NOT NULL DEFAULT 0");
@@ -50,6 +53,11 @@ function migrate(sqlite: Database.Database) {
   const lcols = (sqlite.prepare("PRAGMA table_info(leases)").all() as { name: string }[]).map((c) => c.name);
   if (!lcols.includes("guest_name")) sqlite.exec("ALTER TABLE leases ADD COLUMN guest_name TEXT");
   if (!lcols.includes("guest_phone")) sqlite.exec("ALTER TABLE leases ADD COLUMN guest_phone TEXT");
+  // migrate: สลิปโอนเงิน (แนบตอนขอเช่า = งวดแรก, และแนบรายงวด)
+  if (!lcols.includes("slip")) sqlite.exec("ALTER TABLE leases ADD COLUMN slip TEXT");
+  const pcols = (sqlite.prepare("PRAGMA table_info(payments)").all() as { name: string }[]).map((c) => c.name);
+  if (!pcols.includes("slip")) sqlite.exec("ALTER TABLE payments ADD COLUMN slip TEXT");
+  if (!pcols.includes("slip_at")) sqlite.exec("ALTER TABLE payments ADD COLUMN slip_at INTEGER");
   // migrate: ร้านที่ยังไม่มีชั้น ให้สร้าง "ชั้น 1" แล้วย้ายรายการเดิมเข้าไป
   const noFloor = sqlite.prepare("SELECT id FROM shops WHERE id NOT IN (SELECT shop_id FROM floors)").all() as { id: string }[];
   for (const { id } of noFloor) {

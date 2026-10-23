@@ -6,6 +6,8 @@ import { CATEGORIES, BILLING, baht, fmtDate } from "@/lib/domain";
 import { Stat } from "@/components/ui";
 import Link from "next/link";
 import ShopCard from "@/components/ShopCard";
+import { PayInfoCard } from "@/components/Listing";
+import { SlipLink, SlipUpload } from "@/components/Slip";
 
 export const dynamic = "force-dynamic";
 const ST = { PENDING: "รออนุมัติ", ACTIVE: "กำลังเช่า", REJECTED: "ถูกปฏิเสธ", ENDED: "สิ้นสุด/ยกเลิก" } as const;
@@ -52,12 +54,28 @@ export default async function Tenant() {
                     <tr key={p.id} className="border-t border-line">
                       <td className="py-1.5">ครบกำหนด {fmtDate(p.dueDate)}</td>
                       <td>{baht(p.amount)}</td>
-                      <td className="text-right">{p.paidAt ? <span className="text-ok">ชำระแล้ว</span> : +p.dueDate < now ? <span className="text-danger">เกินกำหนด</span> : <span className="text-muted">รอชำระ</span>}</td>
+                      <td className="text-right">{p.paidAt ? <span className="text-ok">ชำระแล้ว {p.slip && <SlipLink slip={p.slip} label="· สลิป" />}</span> : (
+                        <span className="inline-flex flex-wrap items-center justify-end gap-2">
+                          {!p.slip && (+p.dueDate < now ? <span className="text-danger">เกินกำหนด</span> : <span className="text-muted">รอชำระ</span>)}
+                          {l.status === "ACTIVE" && <SlipUpload paymentId={p.id} slip={p.slip} />}
+                        </span>
+                      )}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+            {l.status === "ACTIVE" && (() => {
+              const next = [...l.payments].sort((a, b) => +a.dueDate - +b.dueDate).find((p) => !p.paidAt);
+              return next ? (
+                <details className="mt-3 group" open={+next.dueDate <= now + 7 * 86400000}>
+                  <summary className="cursor-pointer list-none text-sm font-medium text-brand-ink select-none">💳 วิธีชำระเงิน · งวดถัดไป {baht(next.amount)} ครบ {fmtDate(next.dueDate)} <span className="group-open:hidden">▾</span></summary>
+                  <div className="mt-2"><PayInfoCard payment={l.asset.shop} amount={baht(next.amount)} /></div>
+                  <p className="text-[11px] text-muted mt-1.5">โอนแล้วแจ้งผู้ให้เช่า — สถานะจะเปลี่ยนเป็น “ชำระแล้ว” เมื่อผู้ให้เช่ายืนยันรับเงิน</p>
+                </details>
+              ) : null;
+            })()}
+            {l.status === "PENDING" && l.slip && <p className="mt-2 text-xs text-sky-700">🧾 แนบสลิปงวดแรกมาแล้ว — <SlipLink slip={l.slip} label="ดูสลิป" /></p>}
             {l.status === "PENDING" && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand/15 px-3 py-2 text-sm">
                 <span>⏳ ส่งคำขอแล้ว รอผู้ให้เช่าอนุมัติ — เมื่ออนุมัติจะมีตารางชำระเงินขึ้นที่นี่</span>

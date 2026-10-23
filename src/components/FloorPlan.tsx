@@ -12,6 +12,7 @@ import {
 } from "@/lib/domain";
 import type { FPAsset, FPFeature, FPFloor } from "@/lib/floor";
 import { RentForm, WalkInForm } from "./Forms";
+import { SlipLink } from "./Slip";
 import { BulkListing } from "./Listing";
 import Photos from "./Photos";
 
@@ -1167,7 +1168,7 @@ function Panel({ shopId, a, allOnFloor, onSelectAsset, unit, editable, edit, can
           <div className="space-y-1">
             {l.payments.map((p) => (
               <div key={p.id} className="flex items-center justify-between rounded-lg bg-panel2 px-2.5 py-1.5 text-xs">
-                <span>{fmtDate(p.due)} · {baht(p.amount)}</span>
+                <span>{fmtDate(p.due)} · {baht(p.amount)} {p.slip && <SlipLink slip={p.slip} label="🧾" />}</span>
                 {p.paid ? <span className="text-ok">ชำระแล้ว</span> : editable ? (
                   <form action={markPaid.bind(null, p.id)}><button className={`font-semibold cursor-pointer ${p.due < Date.now() ? "text-danger" : "text-brand-ink"}`}>ยืนยันรับเงิน</button></form>
                 ) : <span className="text-muted">รอชำระ</span>}

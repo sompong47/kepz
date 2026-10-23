@@ -9,6 +9,7 @@ import { AssetForm, ShopCoverBar, ShopSettingsForm, WalkInForm } from "@/compone
 import { StateBadge, Stat } from "@/components/ui";
 import FloorPlan from "@/components/FloorPlan";
 import { PublishBar } from "@/components/Listing";
+import { SlipLink } from "@/components/Slip";
 import ShopTabs from "@/components/ShopTabs";
 import { toFP } from "@/lib/floor";
 
@@ -61,6 +62,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
         shopId={shop.id} published={shop.published} active={shop.active} unit={cat.unit}
         total={assets.length} priced={assets.filter((a) => a.price > 0).length} listed={assets.filter((a) => a.listed).length}
         unlistedIds={assets.filter((a) => !a.listed).map((a) => a.id)} hasPlan={shop.features.length > 0}
+        payment={shop}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -100,6 +102,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
                       <b>{l.asset.code}</b> · {l.guestName || l.tenant.name} {(l.guestPhone || l.tenant.phone) && `(${l.guestPhone || l.tenant.phone})`}
                       <br />
                       <span className="text-muted">{fmtDate(l.startDate)} – {fmtDate(l.endDate)} · {BILLING[l.billing]} · {baht(l.asset.price)}/{PERIOD[l.asset.period]}</span>
+                      {l.slip && <span className="ml-2 text-xs">· แนบสลิปงวดแรกมา <SlipLink slip={l.slip} /></span>}
                     </div>
                     <div className="flex gap-2">
                       <form action={decideLease.bind(null, l.id, "ACTIVE")}><button className="btn">✓ อนุมัติ</button></form>
@@ -133,6 +136,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
                         {[...l.payments].sort((a, b) => +a.dueDate - +b.dueDate).map((p) => (
                           <div key={p.id} className="rounded-lg bg-panel2 px-2.5 py-1.5 text-xs flex items-center gap-2">
                             <span>{fmtDate(p.dueDate)} · {baht(p.amount)}</span>
+                            {p.slip && <SlipLink slip={p.slip} />}
                             {p.paidAt ? (
                               <span className="text-ok font-medium">✓ ชำระแล้ว</span>
                             ) : (

@@ -227,3 +227,9 @@ export function googleMapsHref(location?: string | null, mapUrl?: string | null,
   const q = (raw || location || fallbackName || "").trim();
   return q ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}` : null;
 }
+
+/* ---------- ช่องทางรับเงิน ---------- */
+export const BANKS = ["กสิกรไทย", "ไทยพาณิชย์", "กรุงเทพ", "กรุงไทย", "กรุงศรีอยุธยา", "ทหารไทยธนชาต (ttb)", "ออมสิน", "ธ.ก.ส.", "ยูโอบี", "ซีไอเอ็มบี", "เกียรตินาคินภัทร", "แลนด์ แอนด์ เฮ้าส์"] as const;
+export type PayInfo = { payBank: string | null; payAccountNo: string | null; payAccountName: string | null; payPromptpay: string | null; payQr: string | null; payNote: string | null };
+/** ร้านตั้งช่องทางรับเงินแล้วหรือยัง (บัญชีครบ หรือ พร้อมเพย์ หรือ QR อย่างใดอย่างหนึ่ง) */
+export const hasPayInfo = (s: PayInfo) => !!((s.payBank && s.payAccountNo && s.payAccountName) || s.payPromptpay || s.payQr);

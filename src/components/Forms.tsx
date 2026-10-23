@@ -6,6 +6,8 @@ import {
   addAsset, requestLease, createWalkInLease, type FormState,
 } from "@/lib/actions";
 import { CATEGORIES, BILLING, FLOOR_TEMPLATES, baht, buildPayments, daysBetween, fmtDate, type Category } from "@/lib/domain";
+import { PayInfoCard } from "./Listing";
+import { useShopPayInfo } from "./PayContext";
 
 function Err({ s }: { s: FormState }) {
   return s?.error ? <p className="text-sm text-danger bg-danger/10 rounded-lg px-3 py-2">{s.error}</p> : null;
@@ -305,6 +307,8 @@ export function RentForm({ assetId, price, period, busy = [] }: { assetId: strin
   const pays = valid ? buildPayments({ price, period, start: s!, end: e!, billing: v.billing }) : [];
   const total = pays.reduce((n, p) => n + p.amount, 0);
   const upcoming = busy.filter((r) => r.end >= Date.now()).sort((x, y) => x.start - y.start);
+  const payment = useShopPayInfo();
+  const [slipPreview, setSlipPreview] = useState<string | null>(null);
   return (
     <form action={act} className="space-y-2.5 mt-3 border-t border-line pt-3">
       {upcoming.length > 0 && (
@@ -337,6 +341,28 @@ export function RentForm({ assetId, price, period, busy = [] }: { assetId: strin
           )}
         </div>
       )}
+      {payment && (
+        <div className="space-y-1.5">
+          <div className="text-xs font-semibold text-ink2">💳 ช่องทางชำระเงินของร้าน</div>
+          <PayInfoCard payment={payment} amount={valid && !clash && pays[0] ? `${baht(pays[0].amount)} (งวดแรก)` : undefined} />
+          <p className="text-[11px] text-muted">ยังไม่ต้องโอนตอนนี้ — โอนหลังผู้ให้เช่าอนุมัติ ดูยอดแต่ละงวดได้ที่หน้า “การเช่าของฉัน”</p>
+        </div>
+      )}
+      <label className="flex items-center gap-3 rounded-xl border border-dashed border-line px-3 py-2 cursor-pointer hover:border-brand">
+        {slipPreview
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={slipPreview} alt="สลิป" className="size-12 rounded-lg object-cover border border-line" />
+          : <span className="grid place-items-center size-12 rounded-lg bg-panel2 text-xl">🧾</span>}
+        <span className="text-xs">
+          <span className="font-semibold block">{slipPreview ? "แนบสลิปแล้ว · แตะเพื่อเปลี่ยน" : "แนบสลิปงวดแรก (ไม่บังคับ)"}</span>
+          <span className="text-muted">ถ้าโอนไว้แล้ว แนบสลิปมาพร้อมคำขอได้เลย · JPG/PNG ไม่เกิน 5MB</span>
+        </span>
+        <input type="file" name="slip" accept="image/png,image/jpeg,image/webp" hidden onChange={(x) => {
+          const f = x.target.files?.[0];
+          if (f && f.size > 5 * 1024 * 1024) { alert("รูปสลิปใหญ่เกิน 5MB — ลองแคปหน้าจอสลิปแทน"); x.target.value = ""; return setSlipPreview(null); }
+          setSlipPreview(f ? URL.createObjectURL(f) : null);
+        }} />
+      </label>
       <Err s={st} />
       <button className="btn w-full" disabled={pending || !!clash}>{pending ? "กำลังส่ง…" : "✓ ยืนยันส่งคำขอเช่า"}</button>
       <p className="text-[11px] text-muted text-center">ผู้ให้เช่าจะตรวจสอบและอนุมัติ แล้วระบบจะสร้างตารางชำระเงินให้</p>

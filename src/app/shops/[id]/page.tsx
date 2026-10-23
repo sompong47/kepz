@@ -5,6 +5,7 @@ import { db, shops, floorsOf } from "@/db";
 import { getUser } from "@/lib/auth";
 import { CATEGORIES, PERIOD, areaText, assetState, baht, defaultBox, dimText, fmtDate, googleMapsHref } from "@/lib/domain";
 import { RentForm } from "@/components/Forms";
+import { PayInfoProvider } from "@/components/PayContext";
 import { StateBadge } from "@/components/ui";
 import FloorPlan from "@/components/FloorPlan";
 import { toFP } from "@/lib/floor";
@@ -27,7 +28,10 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
   const vacant = assets.filter((a) => assetState(a.leases) === "VACANT").length;
   const mapHref = googleMapsHref(shop.location, shop.mapUrl, shop.name);
 
+  // ส่งเฉพาะฟิลด์ช่องทางรับเงินไปฝั่งเบราว์เซอร์
+  const payment = { payBank: shop.payBank, payAccountNo: shop.payAccountNo, payAccountName: shop.payAccountName, payPromptpay: shop.payPromptpay, payQr: shop.payQr, payNote: shop.payNote };
   return (
+    <PayInfoProvider payment={payment}>
     <div className="space-y-6">
       {isOwner && (
         <div className={`rounded-2xl px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-2 ${shop.published ? "bg-panel2" : "bg-brand/20 border border-brand"}`}>
@@ -106,5 +110,6 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
         {!assets.length && <p className="text-muted">ร้านนี้ยังไม่มีพื้นที่ที่เปิดให้เช่า</p>}
       </div>
     </div>
+    </PayInfoProvider>
   );
 }
