@@ -86,6 +86,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
             assets={toFP(assets, true, floors[0].id)}
             unit={cat.unit}
             editable
+            editHref={`/seller/shops/${shop.id}/plan`}
           />
         }
         leasesTab={

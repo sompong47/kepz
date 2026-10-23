@@ -1,5 +1,7 @@
 "use client";
 import { useActionState, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   addShape, saveLayout, updateAsset, duplicateAsset, markPaid, pasteItems,
   addFeature, saveFeature, setFeatureColor, duplicateFeature, deleteItems, addFloor, updateFloor, deleteFloor, generateLayout, applyTemplate,
@@ -133,9 +135,15 @@ function featureLook(f: FPFeature): { style: React.CSSProperties; text: string |
   }
 }
 
-export default function FloorPlan({ shopId, category, floors, assets, features, unit, editable, canRent }: {
+/**
+ * editHref = แสดงผังแบบดูอย่างเดียว แล้วพาไปหน้าแก้ผังแยก (หน้าจัดการร้าน)
+ * startEditing / startGen / doneHref = ใช้ในหน้าแก้ผัง: เปิดโหมดแก้ไขทันที และกด "เสร็จสิ้น" แล้วกลับไปที่ doneHref
+ */
+export default function FloorPlan({ shopId, category, floors, assets, features, unit, editable, canRent, editHref, startEditing, startGen, doneHref }: {
   shopId: string; category: Category; floors: FPFloor[]; assets: FPAsset[]; features: FPFeature[]; unit: string; editable?: boolean; canRent?: boolean;
+  editHref?: string; startEditing?: boolean; startGen?: boolean; doneHref?: string;
 }) {
+  const router = useRouter();
   const [items, setItems] = useState(assets);
   const [feats, setFeats] = useState(features);
   const [floorId, setFloorId] = useState(floors[0]?.id ?? "");
@@ -143,10 +151,20 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   const sel = selIds.length === 1 ? selIds[0] : null;
   const setSel = (id: string | null) => setSelIds(id ? [id] : []);
   // ถ้าร้านยังไม่มีอะไรเลยในผัง และเป็นเจ้าของร้าน ให้เปิดโหมดแก้ไขพร้อมคำแนะนำทันที
-  const [edit, setEdit] = useState(() => !!editable && assets.length === 0 && features.length === 0);
+  const [edit, setEdit] = useState(() => !!editable && (startEditing ?? (!editHref && assets.length === 0 && features.length === 0)));
+  /** เข้าโหมดแก้ไข: ถ้ามีหน้าแก้ผังแยกให้ไปหน้านั้น ไม่งั้นสลับในที่เดิม */
+  const enterEdit = (opts?: { gen?: boolean }) => {
+    if (editHref) return router.push(opts?.gen ? `${editHref}?gen=1` : editHref);
+    setEdit(true);
+    if (opts?.gen) setGen(true);
+  };
+  const finishEdit = () => {
+    setEdit(false); setSelIds([]); setGen(false);
+    if (doneHref) router.push(doneHref);
+  };
   const [toolTab, setToolTab] = useState<ToolTab>("units");
   const [lockBg, setLockBg] = useState(false);
-  const [gen, setGen] = useState(false);
+  const [gen, setGen] = useState(!!startGen);
   const [saving, setSaving] = useState<"" | "saving" | "saved">("");
 
   // ตัวกรองฝั่งผู้เช่า/ผู้ชมผัง (ช่วยให้หาห้องว่างง่ายขึ้น)
@@ -585,6 +603,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
       const r = await applyTemplate(shopId, floor.id, tplId);
       if (r.ids?.length) {
         record({ t: "create", ids: r.ids });
+        if (editHref) return router.push(editHref);
         setEdit(true);
         setToolTab("units");
         flash(`✨ สร้างผังจากแม่แบบเรียบร้อย (${r.ids.length} รายการ) — ลากปรับแต่งต่อได้เลย`);
@@ -695,12 +714,14 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
           {editable && (
             <>
               {!edit ? (
-                <button className="btn" onClick={() => setEdit(true)}>🎨 แก้ไข / ตกแต่งผังร้าน</button>
+                editHref
+                  ? <Link href={editHref} className="btn">🎨 แก้ไข / ตกแต่งผังร้าน</Link>
+                  : <button className="btn" onClick={() => setEdit(true)}>🎨 แก้ไข / ตกแต่งผังร้าน</button>
               ) : (
                 <>
                   <button className="btn-ghost !py-1.5" title="เลิกทำ (Ctrl+Z)" disabled={!undoStack.current.length} onClick={() => historyStep("undo")}>↶ เลิกทำ</button>
                   <button className="btn-ghost !py-1.5" title="ทำซ้ำ (Ctrl+Y)" disabled={!redoStack.current.length} onClick={() => historyStep("redo")}>↷ ทำซ้ำ</button>
-                  <button className="btn-dark !py-2" onClick={() => { setEdit(false); setSelIds([]); setGen(false); }}>✓ เสร็จสิ้นการแต่งผัง</button>
+                  <button className="btn-dark !py-2" onClick={finishEdit}>✓ เสร็จสิ้นการแต่งผัง</button>
                 </>
               )}
             </>
@@ -974,7 +995,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
                           )}
                           <button
                             type="button"
-                            onClick={() => { setEdit(true); setGen(true); }}
+                            onClick={() => enterEdit({ gen: true })}
                             className="btn-ghost"
                           >
                             ⚡ วาง{unit}เป็นตารางอัตโนมัติ
