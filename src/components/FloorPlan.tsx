@@ -16,6 +16,7 @@ import { RentForm, WalkInForm } from "./Forms";
 import { SlipLink } from "./Slip";
 import { BulkListing } from "./Listing";
 import Photos from "./Photos";
+import { LogoMark } from "./Brand";
 import { BgPanel, ColorModeBar, PriceAdjust, RenumberBox, ShortcutsModal, VersionsPanel, paint, type ColorMode } from "./PlanTools";
 
 type Mode = "move" | "rot" | "nw" | "ne" | "sw" | "se";
@@ -36,7 +37,7 @@ type Op =
 const HISTORY_MAX = 50;
 const ZOOM_MIN = 0.5, ZOOM_MAX = 8;
 
-type ToolTab = "units" | "elements" | "templates" | "floor" | "bg" | "versions";
+type ToolTab = "list" | "units" | "elements" | "templates" | "floor" | "bg" | "versions";
 /** เส้นนำตอนลาก: เส้นแนวตั้ง/แนวนอนที่ขอบตรงกัน + ระยะห่างถึงชิ้นข้างเคียง */
 type Guides = { v: { x: number; y1: number; y2: number }[]; h: { y: number; x1: number; x2: number }[]; gaps: { x1: number; y1: number; x2: number; y2: number; text: string }[] };
 const SNAP_PX = 6; // ระยะดูดเข้าแนว (px บนจอ)
@@ -165,10 +166,13 @@ function featureLook(f: FPFeature): { style: React.CSSProperties; text: string |
  * editHref = แสดงผังแบบดูอย่างเดียว แล้วพาไปหน้าแก้ผังแยก (หน้าจัดการร้าน)
  * startEditing / startGen / doneHref = ใช้ในหน้าแก้ผัง: เปิดโหมดแก้ไขทันที และกด "เสร็จสิ้น" แล้วกลับไปที่ doneHref
  */
-export default function FloorPlan({ shopId, category, floors, assets, features, unit, editable, canRent, editHref, startEditing, startGen, doneHref }: {
+export default function FloorPlan({ shopId, category, floors, assets, features, unit, editable, canRent, editHref, startEditing, startGen, doneHref, layout, title }: {
   shopId: string; category: Category; floors: FPFloor[]; assets: FPAsset[]; features: FPFeature[]; unit: string; editable?: boolean; canRent?: boolean;
   editHref?: string; startEditing?: boolean; startGen?: boolean; doneHref?: string;
+  /** "canva" = หน้าแก้ผังเต็มจอแบบ Canva (แถบบน · แถบไอคอนซ้าย · ผืนผ้าใบกลาง · คุณสมบัติขวา) */
+  layout?: "canva"; title?: string;
 }) {
+  const canva = layout === "canva";
   const router = useRouter();
   const [items, setItems] = useState(assets);
   const [feats, setFeats] = useState(features);
@@ -188,7 +192,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     setEdit(false); setSelIds([]); setGen(false);
     if (doneHref) router.push(doneHref);
   };
-  const [toolTab, setToolTab] = useState<ToolTab>("units");
+  const [toolTab, setToolTab] = useState<ToolTab>(layout === "canva" ? "list" : "units");
   const [lockBg, setLockBg] = useState(false);
   const [gen, setGen] = useState(!!startGen);
   const [saving, setSaving] = useState<"" | "saving" | "saved">("");
@@ -210,9 +214,10 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   const [searchCode, setSearchCode] = useState("");
 
   // fit = ย่อให้พอดีความกว้างกล่อง; zoom = ซูมเพิ่มจากจุดนั้น (1 = พอดี)
-  const [fit, setFit] = useState(1);
+  const [vp, setVp] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState(1);
-  const scale = fit * zoom;
+  const PAD = canva ? 56 : 0; // ขอบพื้นที่ทำงานรอบ "หน้ากระดาษ" ของผัง
+  const fitFor = (w: number, h: number) => (!vp.w ? 1 : canva ? Math.max(0.05, Math.min((vp.w - 2 * PAD) / w, (vp.h - 2 * PAD) / h, 2)) : Math.min(1, vp.w / w));
   const pendingScroll = useRef<{ left: number; top: number } | null>(null);
   const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const spaceDown = useRef(false);
@@ -226,6 +231,14 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
 
   const floor = floors.find((f) => f.id === floorId) ?? floors[0];
   const W = floor?.w ?? CANVAS.w, H = floor?.h ?? CANVAS.h;
+  const fit = fitFor(W, H);
+  const scale = fit * zoom;
+  /** ขนาดพื้นที่เลื่อน + ตำแหน่งผังให้อยู่กึ่งกลาง ที่สเกล s */
+  const layoutAt = (s: number) => {
+    const cw = Math.max(W * s + 2 * PAD, vp.w), ch = canva ? Math.max(H * s + 2 * PAD, vp.h) : H * s;
+    return { cw, ch, offX: (cw - W * s) / 2, offY: canva ? (ch - H * s) / 2 : 0 };
+  };
+  const lay = layoutAt(scale);
   const fl: FPFloor | undefined = floor && { ...floor, ...bgLocal[floor.id] };
   /** แก้รูปพื้นหลังของชั้นปัจจุบัน แล้วบันทึกหลังหยุดแก้ 0.4 วินาที */
   const patchBg = (p: Partial<FPFloor>) => {
@@ -248,13 +261,58 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setFit(Math.min(1, el.clientWidth / W)));
+    const ro = new ResizeObserver(() => setVp({ w: el.clientWidth, h: el.clientHeight }));
     ro.observe(el);
     return () => ro.disconnect();
   }, [W]);
   // ตำแหน่งที่มองเห็น (สำหรับแผนที่ย่อ)
   const syncView = () => { const el = wrap.current; if (el) setView({ left: el.scrollLeft, top: el.scrollTop, cw: el.clientWidth, ch: el.clientHeight }); };
   useEffect(syncView, [zoom, fit]);
+  useEffect(() => {
+    if (!canva) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [canva]);
+  const [drawer, setDrawer] = useState(true);
+  // มือถือ: เริ่มแบบปิดแผง ให้เห็นผังเต็มจอก่อน
+  useEffect(() => { if (canva && window.innerWidth < 768) setDrawer(false); }, [canva]);
+  /** นิ้วที่แตะจออยู่ (สำหรับ 2 นิ้ว = ซูม/เลื่อนผัง) */
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d: number; z: number; mx: number; my: number } | null>(null);
+  const touchPair = () => {
+    const [a, b] = [...touches.current.values()];
+    return { d: Math.hypot(b.x - a.x, b.y - a.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  };
+  const onTouchDown = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.current.size === 2) {
+      // นิ้วที่ 2 มาแตะ: ยกเลิกการลาก/ตีกรอบของนิ้วแรก แล้วเริ่มซูม
+      drag.current = null; marq.current = null; setMarquee(null); setGuides(null);
+      const q = touchPair();
+      pinch.current = { d: q.d, z: zoom, mx: q.mx, my: q.my };
+      e.stopPropagation();
+    }
+  };
+  const onTouchMove = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch" || !touches.current.has(e.pointerId)) return;
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pc = pinch.current, el = wrap.current;
+    if (!pc || touches.current.size < 2 || !el) return;
+    e.stopPropagation();
+    const q = touchPair();
+    el.scrollLeft -= q.mx - pc.mx;
+    el.scrollTop -= q.my - pc.my;
+    pc.mx = q.mx; pc.my = q.my;
+    const target = pc.z * (q.d / pc.d);
+    if (Math.abs(target - zoom) / zoom > 0.03) zoomTo(target, q.mx, q.my);
+  };
+  const onTouchUp = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    touches.current.delete(e.pointerId);
+    if (touches.current.size < 2) pinch.current = null;
+  };
 
   /** ซูมโดยตรึงจุดใต้เมาส์ (หรือกึ่งกลางกล่อง) ไว้กับที่ */
   const zoomTo = (z: number, clientX?: number, clientY?: number) => {
@@ -263,8 +321,9 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     if (!el || nz === zoom) return;
     const r = el.getBoundingClientRect();
     const px = (clientX ?? r.left + el.clientWidth / 2) - r.left, py = (clientY ?? r.top + el.clientHeight / 2) - r.top;
-    const cx = (el.scrollLeft + px) / scale, cy = (el.scrollTop + py) / scale;
-    pendingScroll.current = { left: cx * fit * nz - px, top: cy * fit * nz - py };
+    const cx = (el.scrollLeft + px - lay.offX) / scale, cy = (el.scrollTop + py - lay.offY) / scale;
+    const nl = layoutAt(fit * nz);
+    pendingScroll.current = { left: cx * fit * nz + nl.offX - px, top: cy * fit * nz + nl.offY - py };
     setZoom(nz);
   };
   useLayoutEffect(() => {
@@ -489,7 +548,8 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
       else { const p1 = calib.p1; setCalib({ p1, p2: p }); setTimeout(() => finishCalib(p1, p), 30); }
       return;
     }
-    if (e.button === 1 || spaceDown.current || (!edit && e.button === 0)) {
+    // นิ้วเดียวบนพื้นที่ว่าง (มือถือ) = เลื่อนผัง เหมือน Canva บนมือถือ
+    if (e.button === 1 || spaceDown.current || (!edit && e.button === 0) || e.pointerType === "touch") {
       e.preventDefault();
       if (!edit) setSel(null);
       const el = wrap.current!;
@@ -556,10 +616,12 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
     patchMany(d.last);
   };
 
-  const up = () => {
+  const up = (e?: React.PointerEvent) => {
     setGuides(null);
     if (bgDrag.current) { bgDrag.current = null; return; }
     if (pan.current) {
+      // แตะสั้น ๆ บนที่ว่าง (มือถือ) = ยกเลิกการเลือก
+      if (e?.pointerType === "touch" && Math.hypot(e.clientX - pan.current.x, e.clientY - pan.current.y) < 6) setSelIds([]);
       pan.current = null;
       if (!spaceDown.current) setPanning(false);
       return;
@@ -868,119 +930,11 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   const catTemplates = FLOOR_TEMPLATES.filter((t) => t.category === category);
   const otherTemplates = FLOOR_TEMPLATES.filter((t) => t.category !== category);
 
-  return (
-    <div className="space-y-3">
-      {/* แถบเลือกชั้น + ปุ่มสลับโหมดแก้ไข */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {(floors.length > 1 || (editable && edit)) && (
-            <>
-              {floors.map((f) => (
-                <button key={f.id} onClick={() => switchFloor(f.id)} className={`btn-ghost !py-1.5 ${f.id === floor?.id ? "pill-on" : ""}`}>
-                  🏢 {f.name}
-                </button>
-              ))}
-              {editable && edit && (
-                <button className="btn-ghost !py-1.5 text-muted" onClick={() => start(async () => switchFloor(await addFloor(shopId)))}>
-                  + เพิ่มชั้น/โซน
-                </button>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {editable && (
-            <>
-              {!edit ? (
-                editHref
-                  ? <Link href={editHref} className="btn">🎨 แก้ไข / ตกแต่งผังร้าน</Link>
-                  : <button className="btn" onClick={() => setEdit(true)}>🎨 แก้ไข / ตกแต่งผังร้าน</button>
-              ) : (
-                <>
-                  <button className="btn-ghost !py-1.5" title="เลิกทำ (Ctrl+Z)" disabled={!undoStack.current.length} onClick={() => historyStep("undo")}>↶ เลิกทำ</button>
-                  <button className="btn-ghost !py-1.5" title="ทำซ้ำ (Ctrl+Y)" disabled={!redoStack.current.length} onClick={() => historyStep("redo")}>↷ ทำซ้ำ</button>
-                  <button className="btn-ghost !py-1.5" title="คีย์ลัดทั้งหมด (?)" onClick={() => setShowKeys(true)}>⌨️ คีย์ลัด</button>
-                  <button className="btn-dark !py-2" onClick={finishEdit}>✓ เสร็จสิ้นการแต่งผัง</button>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* โหมดดูผัง (สำหรับคนเช่า & เจ้าของร้านเวลาดูภาพรวม): แถบค้นหาและตัวกรองที่เข้าใจง่าย */}
-      {!edit && onFloor.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-panel px-3.5 py-2.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex items-center gap-2 rounded-xl bg-panel2 px-3 py-1.5 text-xs font-medium cursor-pointer select-none">
-              <input type="checkbox" checked={onlyVacant} onChange={(e) => setOnlyVacant(e.target.checked)} className="size-4 accent-[#16a34a]" />
-              <span>แสดงเฉพาะ{unit}ว่างพร้อมเช่า ({onFloor.filter((a) => a.listed && a.state === "VACANT").length})</span>
-            </label>
-            {distinctSizes.length > 1 && (
-              <div className="flex flex-wrap items-center gap-1">
-                <button onClick={() => setSizeFilter("")} className={`rounded-lg px-2.5 py-1 text-xs cursor-pointer ${!sizeFilter ? "bg-ink text-white font-medium" : "bg-panel2 text-ink2 hover:bg-line"}`}>
-                  ทุกขนาด
-                </button>
-                {distinctSizes.map((sz) => (
-                  <button key={sz} onClick={() => setSizeFilter(sizeFilter === sz ? "" : sz)} className={`rounded-lg px-2.5 py-1 text-xs cursor-pointer ${sizeFilter === sz ? "bg-ink text-white font-medium" : "bg-panel2 text-ink2 hover:bg-line"}`}>
-                    {sz}
-                  </button>
-                ))}
-              </div>
-            )}
-            <input
-              type="search"
-              value={searchCode}
-              onChange={(e) => setSearchCode(e.target.value)}
-              placeholder={`ค้นหารหัส${unit}…`}
-              className="input !w-36 !py-1 !px-2.5 !text-xs"
-            />
-          </div>
-
-          <div className="flex flex-wrap gap-3 text-xs text-muted">
-            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-full bg-white border-2 border-[#16a34a]" />ว่างพร้อมเช่า</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-full bg-brand" />มีผู้เช่า</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-full bg-sky-400" />รออนุมัติ</span>
-            {editable && <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-full border-2 border-dashed border-[#9e9e9e] bg-[#fafafa]" />ยังไม่เปิดเช่า</span>}
-          </div>
-        </div>
-      )}
-
-      {/* แถบเครื่องมือแบบ Canva เมื่ออยู่ในโหมดแก้ไข */}
-      {edit && floor && (
-        <div className="rounded-2xl border border-line bg-panel p-3 space-y-3 shadow-xs">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
-            <div className="flex flex-wrap gap-1.5">
-              {([
-                ["units", `➕ เพิ่ม${unit}เช่า`],
-                ["elements", "🧱 ของตกแต่งผัง (ถนน/โซน/ห้องน้ำ)"],
-                ["templates", "✨ แม่แบบผังสำเร็จรูป (1 คลิก)"],
-                ["floor", `📐 ขนาดพื้นที่ (${toM(floor.w)}×${toM(floor.h)} ม.)`],
-                ["bg", "🖼 รูปพื้นหลัง/แบบแปลน"],
-                ["versions", "🕘 เวอร์ชันผัง"],
-              ] as const).map(([tab, label]) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => { setToolTab(tab); if (tab !== "units") setGen(false); }}
-                  className={`rounded-xl px-3 py-1.5 text-xs sm:text-sm font-medium cursor-pointer transition ${
-                    toolTab === tab ? "bg-ink text-white shadow-xs" : "bg-panel2 text-ink2 hover:bg-line/60"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <label className="inline-flex items-center gap-1.5 text-xs text-ink2 cursor-pointer select-none px-2 py-1 rounded-lg hover:bg-panel2" title="ล็อกโซนและถนนไม่ให้เผลอลากขยับเวลาจัดเรียงห้อง">
-              <input type="checkbox" checked={lockBg} onChange={(e) => setLockBg(e.target.checked)} className="size-3.5 accent-ink" />
-              <span>🔒 ล็อกพื้นหลังโซน/ถนน</span>
-            </label>
-          </div>
-
+  /** เนื้อหาเครื่องมือแต่ละแท็บ (ใช้ทั้งแถบเครื่องมือปกติ และลิ้นชักซ้ายแบบ Canva) */
+  const toolBody = edit && floor ? (
+    <>
           {toolTab === "units" && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className={canva ? "grid gap-2" : "flex flex-wrap items-center gap-2"}>
               <button className="btn !py-1.5 !px-3 text-xs sm:text-sm" onClick={() => run(() => addShape(shopId, floor.id, "RECT"))}>
                 ＋ เพิ่ม{unit} (สี่เหลี่ยม)
               </button>
@@ -997,17 +951,17 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
           )}
 
           {toolTab === "elements" && (
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className={canva ? "grid grid-cols-2 gap-2" : "flex flex-wrap items-center gap-1.5"}>
               {(Object.keys(FEATURES) as FeatureKind[]).map((k) => (
                 <button
                   key={k}
-                  className="btn-ghost !py-1.5 !px-2.5 text-xs"
+                  className={canva ? "flex flex-col items-center gap-1.5 rounded-xl border border-line bg-panel2/40 px-2 py-3 text-xs hover:border-brand hover:bg-brand/10 cursor-pointer transition" : "btn-ghost !py-1.5 !px-2.5 text-xs"}
                   onClick={() => {
                     if (lockBg && FEATURES[k].back) setLockBg(false);
                     run(() => addFeature(shopId, floor.id, k));
                   }}
                 >
-                  <span className="mr-1">{GLYPH[k]}</span>{FEATURES[k].label}
+                  <span className={canva ? "text-2xl leading-none" : "mr-1"}>{GLYPH[k]}</span>{FEATURES[k].label}
                 </button>
               ))}
             </div>
@@ -1018,7 +972,7 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
               <div className="text-xs text-muted">
                 คลิกเลือกแม่แบบเพื่อวางโครงสร้าง (โซน, ทางเดิน, สำนักงาน, ห้องน้ำ) พร้อม{unit}เช่าและราคาแนะนำลงในผังทันที (กด <b>Ctrl+Z</b> ยกเลิกได้)
               </div>
-              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+              <div className={canva ? "grid gap-2.5" : "grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3"}>
                 {[...catTemplates, ...otherTemplates].map((t) => {
                   const isMatch = t.category === category;
                   return (
@@ -1085,31 +1039,24 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             />
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted pt-1 border-t border-line/60">
-            <span>
-              💡 คลิกชิ้นใดก็ได้เพื่อย้าย/แก้ราคา · ลากคลุมเพื่อเลือกหลายชิ้น · กด <b>Ctrl+C / Ctrl+V</b> คัดลอก-วาง · <b>Delete</b> ลบ
-            </span>
-            <span>
-              {saving === "saving" ? "⏳ กำลังบันทึกอัตโนมัติ…" : saving === "saved" ? "✓ บันทึกผังเรียบร้อย" : ""}
-              {note && <span className="ml-2 rounded-full bg-ink px-2.5 py-0.5 text-white">{note}</span>}
-            </span>
-          </div>
-        </div>
-      )}
+    </>
+  ) : null;
 
-      {onFloor.length > 0 && editable && <ColorModeBar mode={colorMode} onChange={setColorMode} range={priceRange} />}
-
-      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-        <div className="relative min-w-0">
-          <div ref={wrap} onScroll={syncView} className={`rounded-2xl border border-line overflow-auto bg-[#faf8f2] shadow-inner ${panning ? "cursor-grab active:cursor-grabbing" : calib ? "cursor-crosshair" : ""}`} style={{ height: H * fit }}>
-            <div style={{ width: W * scale, height: H * scale }}>
+  const canvasArea = (
+        <div className={canva ? "absolute inset-0" : "relative min-w-0"}>
+          <div ref={wrap} onScroll={syncView}
+            onPointerDownCapture={onTouchDown} onPointerMoveCapture={onTouchMove} onPointerUpCapture={onTouchUp} onPointerCancelCapture={onTouchUp}
+            className={`overflow-auto ${canva ? "absolute inset-0 bg-[#e9eaee]" : "rounded-2xl border border-line bg-[#faf8f2] shadow-inner"} ${panning ? "cursor-grab active:cursor-grabbing" : calib ? "cursor-crosshair" : ""}`}
+            style={canva ? undefined : { height: H * fit }}>
+            <div className="relative" style={{ width: lay.cw, height: lay.ch }}>
               <div
                 ref={canvas}
                 onPointerDown={bgDown}
                 onPointerMove={move}
                 onPointerUp={up}
-                className="relative origin-top-left touch-none select-none"
+                className={`absolute origin-top-left touch-none select-none ${canva ? "bg-white shadow-[0_4px_24px_rgba(17,17,17,.12)]" : ""}`}
                 style={{
+                  left: lay.offX, top: lay.offY,
                   width: W, height: H, transform: `scale(${scale})`,
                   backgroundImage: edit
                     ? "linear-gradient(#ece8dc 1px,transparent 1px),linear-gradient(90deg,#ece8dc 1px,transparent 1px)"
@@ -1282,22 +1229,24 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             const jump = (e: React.PointerEvent<HTMLDivElement>) => {
               const r = e.currentTarget.getBoundingClientRect(), el = wrap.current;
               if (!el) return;
-              el.scrollLeft = ((e.clientX - r.left) / k) * scale - el.clientWidth / 2;
-              el.scrollTop = ((e.clientY - r.top) / k) * scale - el.clientHeight / 2;
+              el.scrollLeft = ((e.clientX - r.left) / k) * scale + lay.offX - el.clientWidth / 2;
+              el.scrollTop = ((e.clientY - r.top) / k) * scale + lay.offY - el.clientHeight / 2;
             };
             return (
-              <div className="absolute bottom-3 left-3 rounded-lg border border-line bg-white/95 shadow-md overflow-hidden cursor-pointer" style={{ width: mw, height: mh }}
+              <div className="absolute bottom-3 left-3 hidden md:block rounded-lg border border-line bg-white/95 shadow-md overflow-hidden cursor-pointer" style={{ width: mw, height: mh }}
                 onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); jump(e); }} onPointerMove={(e) => { if (e.buttons === 1) jump(e); }}>
                 {fOnFloor.map((f) => <div key={f.id} className="absolute" style={{ left: f.x * k, top: f.y * k, width: Math.max(1, f.w * k), height: Math.max(1, f.h * k), background: FEATURES[f.kind]?.back ? "#e7e3d6" : "#9ca3af" }} />)}
                 {onFloor.map((a) => <div key={a.id} className="absolute rounded-[1px]" style={{ left: a.x * k, top: a.y * k, width: Math.max(1.5, a.w * k), height: Math.max(1.5, a.h * k), background: FILL[a.state], boxShadow: `0 0 0 0.5px ${BORDER_COLOR[a.state]}` }} />)}
-                <div className="absolute border-2 border-ink/80 bg-ink/5 pointer-events-none" style={{ left: (view.left / scale) * k, top: (view.top / scale) * k, width: (view.cw / scale) * k, height: (view.ch / scale) * k }} />
+                <div className="absolute border-2 border-ink/80 bg-ink/5 pointer-events-none" style={{ left: ((view.left - lay.offX) / scale) * k, top: ((view.top - lay.offY) / scale) * k, width: (view.cw / scale) * k, height: (view.ch / scale) * k }} />
               </div>
             );
           })()}
         </div>
 
-        {/* แถบจัดการด้านขวา (Inspector / Booking Panel) */}
-        {gen && floor ? (
+  );
+
+  /** แผงขวา: สร้างอัตโนมัติ / เลือกหลายชิ้น / องค์ประกอบ / ห้อง */
+  const inspector = (gen && floor ? (
           <GenPanel key={floor.id} shopId={shopId} floorId={floor.id} category={category} unit={unit} onDone={(ids) => { if (ids?.length) record({ t: "create", ids }); setGen(false); }} />
         ) : selIds.length > 1 ? (
           <div className="card space-y-3 text-sm self-start">
@@ -1375,7 +1324,265 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             onRemove={(id) => (isLocked(id) ? flash("🔒 ปลดล็อกก่อนลบ") : removeWithUndo([id]))}
             onLock={() => lockSelected()}
           />
-        )}
+        ));
+
+  /** แถบเครื่องมือลอยเหนือชิ้นที่เลือก (แบบ Canva) */
+  const selectionBar = edit && selIds.length > 0 && (
+    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 rounded-xl border border-line bg-white px-1.5 py-1 shadow-lg text-sm max-w-[calc(100%-1rem)] overflow-x-auto">
+      <span className="px-2 text-xs text-muted whitespace-nowrap">เลือก {selIds.length}</span>
+      {([
+        ["⟲", "หมุน −90° (Shift+R)", () => rotateBy(selIds, -90)],
+        ["⟳", "หมุน +90° (R)", () => rotateBy(selIds, 90)],
+        ...(selIds.length > 1 ? ([
+          ["⫷", "ชิดซ้าย", () => alignSelected("left")],
+          ["⫿", "กึ่งกลางแนวตั้ง", () => alignSelected("centerX")],
+          ["⊤", "ชิดบน", () => alignSelected("top")],
+          ["⊶", "กึ่งกลางแนวนอน", () => alignSelected("centerY")],
+          ["🔗", "จับกลุ่ม (Ctrl+G)", () => groupSelected(true)],
+        ] as const) : []),
+        [selIds.every(isLocked) ? "🔓" : "🔒", "ล็อก / ปลดล็อก (L)", () => lockSelected()],
+        ["❐", "ทำซ้ำ (Ctrl+C แล้ว Ctrl+V)", () => { copySelected(); paste(); }],
+        ["🗑", "ลบ (Delete)", removeSelected],
+      ] as const).map(([icon, tip, fn]) => (
+        <button key={tip} type="button" title={tip} onClick={fn} className="grid place-items-center size-8 rounded-lg hover:bg-panel2 cursor-pointer">{icon}</button>
+      ))}
+    </div>
+  );
+
+  /** มีชิ้นที่เลือกอยู่ (หรือกำลังวางอัตโนมัติ) → แผงซ้ายแสดงคุณสมบัติแทนเครื่องมือ */
+  const inspecting = selIds.length > 0 || gen;
+  const RAIL: [ToolTab, string, string][] = [
+    ["list", "📋", "รายการ"],
+    ["units", "➕", `${unit}เช่า`],
+    ["elements", "🧩", "องค์ประกอบ"],
+    ["templates", "✨", "แม่แบบ"],
+    ["bg", "🖼", "อัปโหลด"],
+    ["floor", "📐", "ขนาดชั้น"],
+    ["versions", "🕘", "เวอร์ชัน"],
+  ];
+  const RAIL_TITLE: Record<ToolTab, string> = {
+    list: `แตะเลือก${unit}ในผัง`, units: `เพิ่ม${unit}เช่า`, elements: "องค์ประกอบผัง", templates: "แม่แบบผังสำเร็จรูป", bg: "รูปพื้นหลัง / แบบแปลน", floor: `ขนาดพื้นที่ (${toM(W)}×${toM(H)} ม.)`, versions: "เวอร์ชันผัง",
+  };
+
+  if (canva) {
+    return (
+      <div className="fixed inset-0 z-40 flex flex-col bg-[#e9eaee] text-ink">
+        {/* แถบบน */}
+        <div className="h-14 shrink-0 flex items-center gap-1.5 md:gap-2 border-b border-line bg-white px-2 md:px-3">
+          <button type="button" className="btn-ghost !py-1.5 !px-2.5" onClick={finishEdit} title="กลับหน้าจัดการร้าน">←</button>
+          <span className="hidden sm:block"><LogoMark size={28} /></span>
+          <div className="min-w-0 mr-1 md:mr-2">
+            <div className="text-sm font-bold truncate max-w-28 sm:max-w-56">{title ?? "แก้ไขผังร้าน"}</div>
+            <div className="text-[11px] text-muted whitespace-nowrap">{saving === "saving" ? "⏳ กำลังบันทึก…" : saving === "saved" ? "☁️ บันทึกแล้ว" : "บันทึกอัตโนมัติ"}</div>
+          </div>
+          {/* มือถือ: เลือกชั้นแบบ dropdown */}
+          <select value={floor?.id} onChange={(e) => (e.target.value === "__add" ? start(async () => switchFloor(await addFloor(shopId))) : switchFloor(e.target.value))}
+            className="md:hidden rounded-lg border border-line bg-panel2 px-2 py-1.5 text-xs font-medium max-w-24">
+            {floors.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            <option value="__add">+ เพิ่มชั้น</option>
+          </select>
+          <div className="hidden md:flex items-center gap-1 overflow-x-auto">
+            {floors.map((f) => (
+              <button key={f.id} type="button" onClick={() => switchFloor(f.id)} className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium cursor-pointer ${f.id === floor?.id ? "bg-ink text-white" : "text-ink2 hover:bg-panel2"}`}>{f.name}</button>
+            ))}
+            <button type="button" className="whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs text-muted hover:bg-panel2 cursor-pointer" onClick={() => start(async () => switchFloor(await addFloor(shopId)))}>+ ชั้น</button>
+          </div>
+          <div className="ml-auto flex items-center gap-0.5 md:gap-1">
+            <button type="button" className="grid place-items-center size-9 rounded-lg hover:bg-panel2 disabled:opacity-30 cursor-pointer" title="เลิกทำ (Ctrl+Z)" disabled={!undoStack.current.length} onClick={() => historyStep("undo")}>↶</button>
+            <button type="button" className="grid place-items-center size-9 rounded-lg hover:bg-panel2 disabled:opacity-30 cursor-pointer" title="ทำซ้ำ (Ctrl+Y)" disabled={!redoStack.current.length} onClick={() => historyStep("redo")}>↷</button>
+            <label className="hidden md:inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-ink2 hover:bg-panel2 cursor-pointer select-none" title="ล็อกโซนและถนนไม่ให้เผลอลากขยับ">
+              <input type="checkbox" checked={lockBg} onChange={(e) => setLockBg(e.target.checked)} className="size-3.5 accent-ink" /> 🔒 ล็อกพื้นหลัง
+            </label>
+            <button type="button" className="hidden md:grid place-items-center size-9 rounded-lg hover:bg-panel2 cursor-pointer" title="คีย์ลัด (?)" onClick={() => setShowKeys(true)}>⌨️</button>
+            <button type="button" className="btn !py-2 !px-3 md:!px-4 ml-1" onClick={finishEdit}>✓<span className="hidden sm:inline"> เสร็จสิ้น</span></button>
+          </div>
+        </div>
+
+        <div className="flex-1 min-h-0 flex mb-16 md:mb-0">
+          {/* แถบไอคอน: ซ้ายบนจอใหญ่ · ล่างบนมือถือ */}
+          <nav className="fixed md:static inset-x-0 bottom-0 z-40 h-16 md:h-auto md:w-[76px] shrink-0 border-t md:border-t-0 md:border-r border-line bg-white flex md:flex-col items-stretch gap-1 px-1 md:px-0 py-1 md:py-2 overflow-x-auto pb-[env(safe-area-inset-bottom)]">
+            {RAIL.map(([tab, icon, label]) => {
+              const on = drawer && toolTab === tab && !inspecting;
+              return (
+                <button key={tab} type="button"
+                  onClick={() => { if (on) setDrawer(false); else { setToolTab(tab); setDrawer(true); setSelIds([]); } if (tab !== "units") setGen(false); }}
+                  className={`min-w-16 flex-1 md:flex-none md:mx-1.5 flex flex-col items-center justify-center gap-0.5 md:gap-1 rounded-xl py-1 md:py-2 text-[10px] md:text-[11px] whitespace-nowrap cursor-pointer transition ${on ? "bg-brand/25 text-ink font-semibold" : "text-ink2 hover:bg-panel2"}`}>
+                  <span className="text-lg md:text-xl leading-none">{icon}</span>{label}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* แผงซ้าย: คุณสมบัติของชิ้นที่เลือก (แบบ Canva) หรือเครื่องมือตามไอคอนที่กด */}
+          {(drawer || inspecting) && floor && (
+            <aside className="fixed md:static inset-x-0 bottom-16 z-30 max-h-[55dvh] md:max-h-none w-auto md:w-[340px] shrink-0 rounded-t-2xl md:rounded-none border-t md:border-t-0 md:border-r border-line bg-white overflow-y-auto shadow-[0_-8px_24px_rgba(17,17,17,.15)] md:shadow-none">
+              <div className="md:hidden flex justify-center pt-2"><span className="h-1 w-10 rounded-full bg-line" /></div>
+              <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-line bg-white px-4 py-3">
+                {inspecting ? (
+                  <button type="button" className="text-sm font-bold hover:text-brand-ink cursor-pointer" title="ยกเลิกการเลือก แล้วกลับไปที่เครื่องมือ" onClick={() => { setSelIds([]); setGen(false); }}>← {gen ? `วาง${unit}อัตโนมัติ` : "คุณสมบัติ"}</button>
+                ) : (
+                  <div className="font-bold text-sm">{RAIL_TITLE[toolTab]}</div>
+                )}
+                <button type="button" className="text-muted hover:text-ink cursor-pointer px-1" title="ซ่อนแผง" onClick={() => { setDrawer(false); setSelIds([]); setGen(false); }}><span className="hidden md:inline">«</span><span className="md:hidden text-lg leading-none">✕</span></button>
+              </div>
+              {inspecting || toolTab === "list" ? (
+                <div className="p-3 [&>.card]:!border-0 [&>.card]:!shadow-none [&>.card]:!p-2">{inspector}</div>
+              ) : (
+                <div className="p-4 space-y-3 text-sm">{toolBody}</div>
+              )}
+            </aside>
+          )}
+
+          {/* ผืนผ้าใบ */}
+          <main className="relative flex-1 min-w-0">
+            {canvasArea}
+            {selectionBar}
+            {onFloor.length > 0 && !selIds.length && (
+              <div className="absolute top-3 left-3 z-10 max-w-[calc(100%-1.5rem)] overflow-x-auto rounded-xl border border-line bg-white/95 px-2.5 py-1.5 shadow-sm">
+                <ColorModeBar mode={colorMode} onChange={setColorMode} range={priceRange} />
+              </div>
+            )}
+            {note && <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 rounded-full bg-ink px-4 py-1.5 text-xs text-white shadow-lg pointer-events-none">{note}</div>}
+          </main>
+
+        </div>
+        {showKeys && <ShortcutsModal onClose={() => setShowKeys(false)} />}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* แถบเลือกชั้น + ปุ่มสลับโหมดแก้ไข */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {(floors.length > 1 || (editable && edit)) && (
+            <>
+              {floors.map((f) => (
+                <button key={f.id} onClick={() => switchFloor(f.id)} className={`btn-ghost !py-1.5 ${f.id === floor?.id ? "pill-on" : ""}`}>
+                  🏢 {f.name}
+                </button>
+              ))}
+              {editable && edit && (
+                <button className="btn-ghost !py-1.5 text-muted" onClick={() => start(async () => switchFloor(await addFloor(shopId)))}>
+                  + เพิ่มชั้น/โซน
+                </button>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {editable && (
+            <>
+              {!edit ? (
+                editHref
+                  ? <Link href={editHref} className="btn">🎨 แก้ไข / ตกแต่งผังร้าน</Link>
+                  : <button className="btn" onClick={() => setEdit(true)}>🎨 แก้ไข / ตกแต่งผังร้าน</button>
+              ) : (
+                <>
+                  <button className="btn-ghost !py-1.5" title="เลิกทำ (Ctrl+Z)" disabled={!undoStack.current.length} onClick={() => historyStep("undo")}>↶ เลิกทำ</button>
+                  <button className="btn-ghost !py-1.5" title="ทำซ้ำ (Ctrl+Y)" disabled={!redoStack.current.length} onClick={() => historyStep("redo")}>↷ ทำซ้ำ</button>
+                  <button className="btn-ghost !py-1.5" title="คีย์ลัดทั้งหมด (?)" onClick={() => setShowKeys(true)}>⌨️ คีย์ลัด</button>
+                  <button className="btn-dark !py-2" onClick={finishEdit}>✓ เสร็จสิ้นการแต่งผัง</button>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* โหมดดูผัง (สำหรับคนเช่า & เจ้าของร้านเวลาดูภาพรวม): แถบค้นหาและตัวกรองที่เข้าใจง่าย */}
+      {!edit && onFloor.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-panel px-3.5 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex items-center gap-2 rounded-xl bg-panel2 px-3 py-1.5 text-xs font-medium cursor-pointer select-none">
+              <input type="checkbox" checked={onlyVacant} onChange={(e) => setOnlyVacant(e.target.checked)} className="size-4 accent-[#16a34a]" />
+              <span>แสดงเฉพาะ{unit}ว่างพร้อมเช่า ({onFloor.filter((a) => a.listed && a.state === "VACANT").length})</span>
+            </label>
+            {distinctSizes.length > 1 && (
+              <div className="flex flex-wrap items-center gap-1">
+                <button onClick={() => setSizeFilter("")} className={`rounded-lg px-2.5 py-1 text-xs cursor-pointer ${!sizeFilter ? "bg-ink text-white font-medium" : "bg-panel2 text-ink2 hover:bg-line"}`}>
+                  ทุกขนาด
+                </button>
+                {distinctSizes.map((sz) => (
+                  <button key={sz} onClick={() => setSizeFilter(sizeFilter === sz ? "" : sz)} className={`rounded-lg px-2.5 py-1 text-xs cursor-pointer ${sizeFilter === sz ? "bg-ink text-white font-medium" : "bg-panel2 text-ink2 hover:bg-line"}`}>
+                    {sz}
+                  </button>
+                ))}
+              </div>
+            )}
+            <input
+              type="search"
+              value={searchCode}
+              onChange={(e) => setSearchCode(e.target.value)}
+              placeholder={`ค้นหารหัส${unit}…`}
+              className="input !w-36 !py-1 !px-2.5 !text-xs"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-3 text-xs text-muted">
+            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-full bg-white border-2 border-[#16a34a]" />ว่างพร้อมเช่า</span>
+            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-full bg-brand" />มีผู้เช่า</span>
+            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-full bg-sky-400" />รออนุมัติ</span>
+            {editable && <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-full border-2 border-dashed border-[#9e9e9e] bg-[#fafafa]" />ยังไม่เปิดเช่า</span>}
+          </div>
+        </div>
+      )}
+
+      {/* แถบเครื่องมือแบบ Canva เมื่ออยู่ในโหมดแก้ไข */}
+      {edit && floor && (
+        <div className="rounded-2xl border border-line bg-panel p-3 space-y-3 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2.5">
+            <div className="flex flex-wrap gap-1.5">
+              {([
+                ["units", `➕ เพิ่ม${unit}เช่า`],
+                ["elements", "🧱 ของตกแต่งผัง (ถนน/โซน/ห้องน้ำ)"],
+                ["templates", "✨ แม่แบบผังสำเร็จรูป (1 คลิก)"],
+                ["floor", `📐 ขนาดพื้นที่ (${toM(floor.w)}×${toM(floor.h)} ม.)`],
+                ["bg", "🖼 รูปพื้นหลัง/แบบแปลน"],
+                ["versions", "🕘 เวอร์ชันผัง"],
+              ] as const).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => { setToolTab(tab); if (tab !== "units") setGen(false); }}
+                  className={`rounded-xl px-3 py-1.5 text-xs sm:text-sm font-medium cursor-pointer transition ${
+                    toolTab === tab ? "bg-ink text-white shadow-xs" : "bg-panel2 text-ink2 hover:bg-line/60"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <label className="inline-flex items-center gap-1.5 text-xs text-ink2 cursor-pointer select-none px-2 py-1 rounded-lg hover:bg-panel2" title="ล็อกโซนและถนนไม่ให้เผลอลากขยับเวลาจัดเรียงห้อง">
+              <input type="checkbox" checked={lockBg} onChange={(e) => setLockBg(e.target.checked)} className="size-3.5 accent-ink" />
+              <span>🔒 ล็อกพื้นหลังโซน/ถนน</span>
+            </label>
+          </div>
+
+          {toolBody}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted pt-1 border-t border-line/60">
+            <span>
+              💡 คลิกชิ้นใดก็ได้เพื่อย้าย/แก้ราคา · ลากคลุมเพื่อเลือกหลายชิ้น · กด <b>Ctrl+C / Ctrl+V</b> คัดลอก-วาง · <b>Delete</b> ลบ
+            </span>
+            <span>
+              {saving === "saving" ? "⏳ กำลังบันทึกอัตโนมัติ…" : saving === "saved" ? "✓ บันทึกผังเรียบร้อย" : ""}
+              {note && <span className="ml-2 rounded-full bg-ink px-2.5 py-0.5 text-white">{note}</span>}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {onFloor.length > 0 && editable && <ColorModeBar mode={colorMode} onChange={setColorMode} range={priceRange} />}
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+        {canvasArea}
+
+        {/* แถบจัดการด้านขวา (Inspector / Booking Panel) */}
+        {inspector}
       </div>
       {showKeys && <ShortcutsModal onClose={() => setShowKeys(false)} />}
     </div>
