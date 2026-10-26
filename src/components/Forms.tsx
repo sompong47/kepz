@@ -36,7 +36,6 @@ export function LoginForm() {
 
   const DEMO_ACCOUNTS = [
     { label: "🏪 ทดสอบฝั่งเจ้าของร้าน (สร้างผัง / อนุมัติสัญญา / Walk-in)", email: "seller@kepz.test", sub: "คุณสมชาย · seller@kepz.test", to: "/seller" },
-    { label: "👤 ทดสอบฝั่งผู้เช่า (เลือกห้องในผัง / ส่งคำขอเช่า / ดูบิล)", email: "tenant@kepz.test", sub: "คุณมานี · tenant@kepz.test", to: "/tenant" },
     { label: "🛡️ ทดสอบฝั่งแอดมิน (ดูภาพรวมระบบ / ระงับร้าน)", email: "admin@kepz.test", sub: "แอดมิน · admin@kepz.test", to: "/admin" },
   ];
 
@@ -80,7 +79,8 @@ export function RegisterForm() {
   const [st, act, pending] = useActionState(register, undefined);
   return (
     <form action={act} className="card space-y-4 max-w-md mx-auto">
-      <h1 className="text-xl font-bold">สมัครสมาชิก</h1>
+      <h1 className="text-xl font-bold">สมัครใช้งานสำหรับเจ้าของพื้นที่เช่า</h1>
+      <p className="text-sm text-muted -mt-2">ผู้เช่าไม่ต้องสมัคร — เจ้าของเป็นผู้บันทึกข้อมูลผู้เช่าและการชำระเงินเอง</p>
       <F label="ชื่อ"><input name="name" required className="input" /></F>
       <F label="อีเมล"><input name="email" type="email" required className="input" /></F>
       <F label="เบอร์โทร"><input name="phone" className="input" /></F>

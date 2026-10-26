@@ -1,18 +1,21 @@
 import { assetState, defaultBox, type AssetState, type FeatureKind } from "./domain";
 
-export type FPFloor = { id: string; name: string; w: number; h: number };
-export type FPFeature = { id: string; floorId: string; kind: FeatureKind; label: string | null; x: number; y: number; w: number; h: number; rot: number; color: string | null };
+export type FPFloor = {
+  id: string; name: string; w: number; h: number;
+  bgImage?: string | null; bgX?: number; bgY?: number; bgW?: number | null; bgH?: number | null; bgOpacity?: number; bgShow?: boolean;
+};
+export type FPFeature = { id: string; floorId: string; kind: FeatureKind; label: string | null; x: number; y: number; w: number; h: number; rot: number; color: string | null; grp?: string | null; locked?: boolean };
 export type FPPayment = { id: string; amount: number; due: number; paid: number | null; slip: string | null };
 export type FPAsset = {
   id: string; floorId: string; code: string; size: string | null; price: number; period: "DAY" | "MONTH"; note: string | null;
-  x: number; y: number; w: number; h: number; rot: number; shape: "RECT" | "CIRCLE"; listed: boolean;
+  x: number; y: number; w: number; h: number; rot: number; shape: "RECT" | "CIRCLE" | "L"; listed: boolean; grp: string | null; locked: boolean;
   state: AssetState; endDate: number | null; photos: string[]; busy: { start: number; end: number }[];
   lease: null | { id: string; tenant: string; phone: string | null; isWalkIn?: boolean; start: number; end: number; billing: string; payments: FPPayment[] };
 };
 
 type Src = {
   id: string; floorId: string | null; code: string; size: string | null; price: number; period: "DAY" | "MONTH"; note: string | null;
-  x: number | null; y: number | null; w: number | null; h: number | null; rot: number; shape: "RECT" | "CIRCLE"; listed: boolean;
+  x: number | null; y: number | null; w: number | null; h: number | null; rot: number; shape: "RECT" | "CIRCLE" | "L"; listed: boolean; grp?: string | null; locked?: boolean;
   photos?: { id: string; createdAt: Date | null }[];
   leases: {
     id: string; status: string; startDate: Date; endDate: Date; billing: string;
@@ -34,7 +37,7 @@ export function toFP(rows: Src[], detail: boolean, firstFloorId: string): FPAsse
     const tenantPhone = active?.guestName ? (active.guestPhone ?? null) : (active?.tenant?.phone ?? null);
     return {
       id: a.id, floorId, code: a.code, size: a.size, price: a.price, period: a.period, note: a.note, shape: a.shape,
-      x: a.x ?? d.x, y: a.y ?? d.y, w: a.w ?? d.w, h: a.h ?? d.h, rot: a.rot, listed: a.listed,
+      x: a.x ?? d.x, y: a.y ?? d.y, w: a.w ?? d.w, h: a.h ?? d.h, rot: a.rot, listed: a.listed, grp: a.grp ?? null, locked: !!a.locked,
       state: assetState(a.leases), endDate: active ? +active.endDate : null,
       busy: a.leases.filter((l) => l.status === "ACTIVE").map((l) => ({ start: +l.startDate, end: +l.endDate })),
       photos: [...(a.photos ?? [])].sort((p, q) => +(p.createdAt ?? 0) - +(q.createdAt ?? 0)).map((p) => p.id),

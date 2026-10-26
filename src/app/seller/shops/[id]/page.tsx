@@ -8,8 +8,8 @@ import { CATEGORIES, PERIOD, BILLING, assetState, baht, defaultBox, dimText, fmt
 import { AssetForm, ShopCoverBar, ShopSettingsForm, WalkInForm } from "@/components/Forms";
 import { StateBadge, Stat } from "@/components/ui";
 import FloorPlan from "@/components/FloorPlan";
-import { PublishBar } from "@/components/Listing";
-import { SlipLink } from "@/components/Slip";
+import { CopyBillButton, PaymentSetup } from "@/components/Listing";
+import { SlipLink, SlipUpload } from "@/components/Slip";
 import ShopTabs from "@/components/ShopTabs";
 import { toFP } from "@/lib/floor";
 
@@ -58,12 +58,7 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
 
       <ShopCoverBar shopId={shop.id} coverPhoto={shop.coverPhoto} shopName={shop.name} />
 
-      <PublishBar
-        shopId={shop.id} published={shop.published} active={shop.active} unit={cat.unit}
-        total={assets.length} priced={assets.filter((a) => a.price > 0).length} listed={assets.filter((a) => a.listed).length}
-        unlistedIds={assets.filter((a) => !a.listed).map((a) => a.id)} hasPlan={shop.features.length > 0}
-        payment={shop}
-      />
+      {!shop.active && <p className="rounded-2xl bg-danger/10 text-danger px-4 py-3 text-sm">ร้านนี้ถูกระงับโดยแอดมิน</p>}
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Stat label="อัตราเข้าพัก" value={`${assets.length ? Math.round((occupied / assets.length) * 100) : 0}%`} />
@@ -136,15 +131,18 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
                         {[...l.payments].sort((a, b) => +a.dueDate - +b.dueDate).map((p) => (
                           <div key={p.id} className="rounded-lg bg-panel2 px-2.5 py-1.5 text-xs flex items-center gap-2">
                             <span>{fmtDate(p.dueDate)} · {baht(p.amount)}</span>
-                            {p.slip && <SlipLink slip={p.slip} />}
                             {p.paidAt ? (
-                              <span className="text-ok font-medium">✓ ชำระแล้ว</span>
+                              <span className="text-ok font-medium">✓ ชำระแล้ว {p.slip && <SlipLink slip={p.slip} label="· สลิป" />}</span>
                             ) : (
+                              <>
+                              <SlipUpload paymentId={p.id} slip={p.slip} owner />
+                              <CopyBillButton shopName={shop.name} unitCode={l.asset.code} tenant={tName} amount={p.amount} dueDate={+p.dueDate} payment={shop} />
                               <form action={markPaid.bind(null, p.id)}>
                                 <button className={`font-semibold cursor-pointer underline ${+p.dueDate < Date.now() ? "text-danger" : "text-brand-ink"}`}>
                                   ยืนยันรับเงิน
                                 </button>
                               </form>
+                              </>
                             )}
                           </div>
                         ))}
@@ -205,7 +203,16 @@ export default async function ManageShop({ params }: { params: Promise<{ id: str
             </div>
           </section>
         }
-        settingsTab={<ShopSettingsForm shop={shop} />}
+        settingsTab={
+          <div className="space-y-6">
+            <ShopSettingsForm shop={shop} />
+            <section className="card space-y-3">
+              <h3 className="font-bold text-lg">💳 ช่องทางรับเงิน</h3>
+              <p className="text-xs text-muted">ใช้ในข้อความแจ้งชำระที่คัดลอกส่งให้ผู้เช่า (ปุ่ม “📋 ข้อความแจ้งชำระ” ในแท็บสัญญาเช่า)</p>
+              <PaymentSetup shopId={shop.id} payment={shop} />
+            </section>
+          </div>
+        }
       />
     </div>
   );

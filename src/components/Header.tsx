@@ -25,11 +25,6 @@ export default async function Header() {
                 🏪 เจ้าของร้าน
               </button>
             </form>
-            <form action={demoQuickLogin.bind(null, "tenant@kepz.test", "/tenant")}>
-              <button className={`rounded-lg px-2.5 py-0.5 text-[11px] font-medium transition cursor-pointer ${u?.email === "tenant@kepz.test" ? "bg-brand text-ink font-bold" : "bg-white/15 hover:bg-white/25 text-white"}`}>
-                👤 ผู้เช่า
-              </button>
-            </form>
             <form action={demoQuickLogin.bind(null, "admin@kepz.test", "/admin")}>
               <button className={`rounded-lg px-2.5 py-0.5 text-[11px] font-medium transition cursor-pointer ${u?.email === "admin@kepz.test" ? "bg-brand text-ink font-bold" : "bg-white/15 hover:bg-white/25 text-white"}`}>
                 🛡️ แอดมิน
@@ -45,8 +40,7 @@ export default async function Header() {
           {u ? (
             <>
               {u.role === "ADMIN" && <Link href="/admin" className="btn-ghost">แอดมิน</Link>}
-              <Link href="/tenant" className="btn-ghost">การเช่าของฉัน</Link>
-              <Link href="/seller" className="btn-ghost">ร้านของฉัน</Link>
+              <Link href="/seller" className="btn-ghost">🏠 ร้าน/สถานที่ของฉัน</Link>
               <form action={logout}><button className="btn-ghost">ออก</button></form>
             </>
           ) : (

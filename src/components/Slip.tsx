@@ -34,8 +34,8 @@ export function SlipLink({ slip, label = "🧾 ดูสลิป" }: { slip: st
   );
 }
 
-/** ผู้เช่าแนบ/เปลี่ยนสลิปของงวดที่ยังไม่ชำระ */
-export function SlipUpload({ paymentId, slip }: { paymentId: string; slip: string | null }) {
+/** แนบ/เปลี่ยนสลิปของงวดที่ยังไม่ยืนยันรับเงิน (owner = เจ้าของร้านแนบสลิปที่ผู้เช่าส่งมา) */
+export function SlipUpload({ paymentId, slip, owner = false }: { paymentId: string; slip: string | null; owner?: boolean }) {
   const [pending, start] = useTransition();
   const [err, setErr] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -52,7 +52,7 @@ export function SlipUpload({ paymentId, slip }: { paymentId: string; slip: strin
   };
   return (
     <span className="inline-flex flex-wrap items-center justify-end gap-2">
-      {slip && <><span className="text-sky-700">ส่งสลิปแล้ว · รอยืนยัน</span><SlipLink slip={slip} label="ดู" /></>}
+      {slip && <><span className="text-sky-700">{owner ? "มีสลิปแล้ว" : "ส่งสลิปแล้ว · รอยืนยัน"}</span><SlipLink slip={slip} label="ดู" /></>}
       <button type="button" disabled={pending} onClick={() => input.current?.click()} className="rounded-md border border-line bg-panel px-2 py-0.5 text-xs hover:bg-panel2 cursor-pointer disabled:opacity-50">
         {pending ? "กำลังส่ง…" : slip ? "เปลี่ยนสลิป" : "📎 แนบสลิป"}
       </button>

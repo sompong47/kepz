@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useState, useTransition } from "react";
 import { savePaymentInfo, setListing, setShopPublished } from "@/lib/actions";
-import { BANKS, hasPayInfo, type PayInfo } from "@/lib/domain";
+import { BANKS, baht, fmtDate, hasPayInfo, type PayInfo } from "@/lib/domain";
 
 /** แถบสถานะร้าน + เช็กลิสต์ก่อนเปิดให้เช่า (หน้าจัดการร้าน) */
 export function PublishBar({ shopId, published, active, unit, total, priced, listed, unlistedIds, hasPlan, payment }: {
@@ -205,5 +205,29 @@ export function PayInfoCard({ payment, amount }: { payment: PayInfo; amount?: st
         </>
       )}
     </div>
+  );
+}
+
+/** คัดลอกข้อความแจ้งชำระ (ยอด + วันครบกำหนด + ช่องทางโอน) ไว้ส่งผู้เช่าทาง LINE/SMS */
+export function CopyBillButton({ shopName, unitCode, tenant, amount, dueDate, payment }: {
+  shopName: string; unitCode: string; tenant: string; amount: number; dueDate: number; payment: PayInfo;
+}) {
+  const [done, setDone] = useState(false);
+  const copy = () => {
+    const lines = [
+      `แจ้งชำระค่าเช่า ${shopName} · ${unitCode}`,
+      `เรียน คุณ${tenant}`,
+      `ยอดชำระ ${baht(amount)} ครบกำหนด ${fmtDate(dueDate)}`,
+      payment.payBank && payment.payAccountNo ? `โอนเข้า ${payment.payBank} ${payment.payAccountNo}${payment.payAccountName ? ` (${payment.payAccountName})` : ""}` : null,
+      payment.payPromptpay ? `พร้อมเพย์ ${payment.payPromptpay}` : null,
+      payment.payNote,
+      "โอนแล้วรบกวนส่งสลิปกลับมาด้วยนะครับ/ค่ะ ขอบคุณครับ/ค่ะ",
+    ].filter(Boolean);
+    navigator.clipboard?.writeText(lines.join("\n")).then(() => { setDone(true); setTimeout(() => setDone(false), 1800); });
+  };
+  return (
+    <button type="button" onClick={copy} title="คัดลอกข้อความแจ้งชำระไปวางใน LINE" className="text-[11px] rounded-md border border-line bg-panel px-1.5 py-0.5 hover:bg-panel2 cursor-pointer">
+      {done ? "✓ คัดลอกแล้ว" : "📋 ข้อความแจ้งชำระ"}
+    </button>
   );
 }

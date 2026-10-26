@@ -31,7 +31,6 @@ export default async function EditPlan({ params, searchParams }: { params: Promi
           <h1 className="text-2xl font-bold mt-0.5">🎨 แก้ไขผังร้าน · {cat.icon} {shop.name}</h1>
           <p className="text-sm text-muted">วาดผังสถานที่ วาง{cat.unit} ตั้งราคา แล้วกด “✓ เสร็จสิ้นการแต่งผัง” เพื่อกลับหน้าจัดการร้าน · ทุกการเปลี่ยนแปลงบันทึกอัตโนมัติ</p>
         </div>
-        <Link href={`/shops/${shop.id}`} className="btn-ghost text-sm">ดูหน้าร้าน (มุมมองผู้เช่า) ↗</Link>
       </div>
 
       <FloorPlan

@@ -60,7 +60,7 @@ const n1 = (n: number) => (Math.round(n * 10) / 10).toLocaleString("th-TH");
 export const dimText = (w: number, h: number) => `${n1(toM(w))} × ${n1(toM(h))} ม.`;
 export const areaText = (w: number, h: number) => `${n1(toM(w) * toM(h))} ตร.ม.`;
 
-export type FeatureKind = "ZONE" | "ROAD" | "WALL" | "ENTRANCE" | "STAIRS" | "TOILET" | "OFFICE" | "TEXT" | "WATER" | "GREEN";
+export type FeatureKind = "ZONE" | "ROAD" | "WALL" | "ENTRANCE" | "STAIRS" | "TOILET" | "OFFICE" | "TEXT" | "WATER" | "GREEN" | "PILLAR" | "DOOR" | "ARROW";
 /** องค์ประกอบผังที่ไม่ได้ให้เช่า พร้อมขนาดเริ่มต้น; back=true วาดไว้ใต้ห้อง */
 export const FEATURES: Record<FeatureKind, { label: string; w: number; h: number; back?: boolean }> = {
   ZONE: { label: "โซน/พื้นที่", w: 300, h: 200, back: true },
@@ -73,6 +73,9 @@ export const FEATURES: Record<FeatureKind, { label: string; w: number; h: number
   TOILET: { label: "ห้องน้ำ", w: 70, h: 60 },
   STAIRS: { label: "บันได/ลิฟต์", w: 70, h: 60 },
   TEXT: { label: "ป้ายข้อความ", w: 160, h: 30 },
+  PILLAR: { label: "เสา", w: 20, h: 20 },
+  DOOR: { label: "ประตู", w: 40, h: 40 },
+  ARROW: { label: "ลูกศรทิศทาง", w: 80, h: 30 },
 };
 
 /** ค่าเริ่มต้นของตัวช่วยสร้างผังอัตโนมัติ ตามประเภทธุรกิจ */
