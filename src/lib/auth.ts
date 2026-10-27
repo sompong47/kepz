@@ -38,4 +38,4 @@ export async function requireUser() {
   if (!u) redirect("/login");
   return u;
 }
-export const homeFor = (r: Role) => (r === "ADMIN" ? "/admin" : "/tenant");
+export const homeFor = (r: Role) => (r === "ADMIN" ? "/admin" : "/seller");

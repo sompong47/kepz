@@ -23,6 +23,13 @@ export const shops = sqliteTable("shops", {
   mapUrl: text("map_url"),
   coverPhoto: text("cover_photo"),
   phone: text("phone"),
+  // ช่องทางรับเงินจากผู้เช่า
+  payBank: text("pay_bank"),
+  payAccountNo: text("pay_account_no"),
+  payAccountName: text("pay_account_name"),
+  payPromptpay: text("pay_promptpay"),
+  payQr: text("pay_qr"), // ชื่อไฟล์รูป QR ใน uploads/
+  payNote: text("pay_note"),
   active: integer("active", { mode: "boolean" }).notNull().default(true), // แอดมินระงับได้
   published: integer("published", { mode: "boolean" }).notNull().default(false), // เจ้าของเปิดร้านให้เช่าแล้ว
   ownerId: text("owner_id").notNull().references(() => users.id),
@@ -42,9 +49,11 @@ export const assets = sqliteTable(
     y: integer("y"),
     w: integer("w"),
     h: integer("h"),
-    shape: text("shape", { enum: ["RECT", "CIRCLE"] }).notNull().default("RECT"),
+    shape: text("shape", { enum: ["RECT", "CIRCLE", "L"] }).notNull().default("RECT"),
     rot: integer("rot").notNull().default(0), // องศา หมุนรอบจุดกึ่งกลาง
     listed: integer("listed", { mode: "boolean" }).notNull().default(false), // เปิดให้เช่า (ต้องมีราคา)
+    grp: text("grp"), // id กลุ่ม: ชิ้นที่ grp เดียวกันเลือก/ย้ายไปด้วยกัน
+    locked: integer("locked", { mode: "boolean" }).notNull().default(false),
     floorId: text("floor_id").references(() => floors.id, { onDelete: "set null" }),
     shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
   },
@@ -67,13 +76,31 @@ export const floors = sqliteTable("floors", {
   sort: integer("sort").notNull().default(0),
   w: integer("w").notNull().default(1000),
   h: integer("h").notNull().default(600),
+  // รูปแบบแปลน/ภาพถ่ายพื้นหลัง (หน่วย px บนผัง; 20 px = 1 ม.)
+  bgImage: text("bg_image"),
+  bgX: integer("bg_x").notNull().default(0),
+  bgY: integer("bg_y").notNull().default(0),
+  bgW: integer("bg_w"),
+  bgH: integer("bg_h"),
+  bgOpacity: integer("bg_opacity").notNull().default(50),
+  bgShow: integer("bg_show", { mode: "boolean" }).notNull().default(true),
   shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+});
+
+/** เวอร์ชันผังที่บันทึกไว้ (สแนปช็อต JSON ของชั้น: ขนาด รูปพื้นหลัง องค์ประกอบ และห้อง) */
+export const planVersions = sqliteTable("plan_versions", {
+  id: id(),
+  shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+  floorId: text("floor_id").notNull().references(() => floors.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  data: text("data").notNull(),
+  createdAt: createdAt(),
 });
 
 /** องค์ประกอบผังที่ไม่ได้ให้เช่า เช่น ผนัง ทางเดิน ทางเข้า */
 export const features = sqliteTable("features", {
   id: id(),
-  kind: text("kind", { enum: ["ZONE", "ROAD", "WALL", "ENTRANCE", "STAIRS", "TOILET", "OFFICE", "TEXT", "WATER", "GREEN"] }).notNull(),
+  kind: text("kind", { enum: ["ZONE", "ROAD", "WALL", "ENTRANCE", "STAIRS", "TOILET", "OFFICE", "TEXT", "WATER", "GREEN", "PILLAR", "DOOR", "ARROW"] }).notNull(),
   label: text("label"),
   x: integer("x").notNull(),
   y: integer("y").notNull(),
@@ -81,6 +108,8 @@ export const features = sqliteTable("features", {
   h: integer("h").notNull(),
   rot: integer("rot").notNull().default(0),
   color: text("color"), // #rrggbb; null = สีตั้งต้นของชนิด
+  grp: text("grp"),
+  locked: integer("locked", { mode: "boolean" }).notNull().default(false),
   floorId: text("floor_id").notNull().references(() => floors.id, { onDelete: "cascade" }),
   shopId: text("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
 });
@@ -95,6 +124,7 @@ export const leases = sqliteTable("leases", {
   tenantId: text("tenant_id").notNull().references(() => users.id),
   guestName: text("guest_name"),
   guestPhone: text("guest_phone"),
+  slip: text("slip"), // สลิปงวดแรกที่แนบมากับคำขอเช่า (ย้ายไปผูกกับงวดแรกตอนอนุมัติ)
   createdAt: createdAt(),
 });
 
@@ -103,6 +133,8 @@ export const payments = sqliteTable("payments", {
   amount: integer("amount").notNull(),
   dueDate: integer("due_date", { mode: "timestamp_ms" }).notNull(),
   paidAt: integer("paid_at", { mode: "timestamp_ms" }),
+  slip: text("slip"), // ชื่อไฟล์สลิปโอนเงินใน uploads/
+  slipAt: integer("slip_at", { mode: "timestamp_ms" }),
   leaseId: text("lease_id").notNull().references(() => leases.id, { onDelete: "cascade" }),
 });
 

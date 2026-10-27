@@ -3,108 +3,87 @@ import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db, shops, floorsOf } from "@/db";
 import { getUser } from "@/lib/auth";
-import { CATEGORIES, PERIOD, areaText, assetState, baht, defaultBox, dimText, fmtDate, googleMapsHref } from "@/lib/domain";
-import { RentForm } from "@/components/Forms";
-import { StateBadge } from "@/components/ui";
+import { CATEGORIES, assetState, googleMapsHref } from "@/lib/domain";
 import FloorPlan from "@/components/FloorPlan";
 import { toFP } from "@/lib/floor";
 
 export const dynamic = "force-dynamic";
 
-export default async function ShopPage({ params }: { params: Promise<{ id: string }> }) {
+/** หน้าดูผังออนไลน์สำหรับแชร์ (Public Showcase Link) — เปิดดูผัง ซูม ค้นหา และดาวน์โหลดรูปผังได้โดยไม่ต้องล็อกอิน */
+export default async function ShopPublicShowcase({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const shop = await db.query.shops.findFirst({ where: eq(shops.id, id), with: { features: true, assets: { with: { photos: true, leases: true } } } });
+  const shop = await db.query.shops.findFirst({
+    where: eq(shops.id, id),
+    with: { features: true, assets: { with: { photos: true, leases: true } } },
+  });
   if (!shop || !shop.active) notFound();
+
   const u = await getUser();
   const isOwner = !!u && (u.id === shop.ownerId || u.role === "ADMIN");
-  // ร้านฉบับร่าง: เจ้าของดูตัวอย่างได้ คนอื่นไม่เห็น
-  if (!shop.published && !isOwner) notFound();
   const floors = await floorsOf(shop.id);
-  const fp = toFP(shop.assets, false, floors[0].id);
-  const canRent = !!u && shop.published; // เจ้าของร้านเช่าเองได้ด้วย
   const cat = CATEGORIES[shop.category];
-  const assets = [...shop.assets].filter((a) => a.listed && a.price > 0).sort((a, b) => a.code.localeCompare(b.code, "th", { numeric: true }));
-  const vacant = assets.filter((a) => assetState(a.leases) === "VACANT").length;
+  const openAssets = shop.assets.filter((a) => a.listed || a.price > 0);
+  const vacant = openAssets.filter((a) => assetState(a.leases) === "VACANT").length;
   const mapHref = googleMapsHref(shop.location, shop.mapUrl, shop.name);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {isOwner && (
-        <div className={`rounded-2xl px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-2 ${shop.published ? "bg-panel2" : "bg-brand/20 border border-brand"}`}>
-          <span>{shop.published ? "นี่คือร้านของคุณ — หน้านี้คือสิ่งที่ผู้เช่าเห็น (คุณเช่าเองได้ด้วย)" : "👀 โหมดดูตัวอย่าง: ร้านยังเป็นฉบับร่าง ผู้เช่ายังไม่เห็นหน้านี้"}</span>
-          <Link href={`/seller/shops/${shop.id}`} className="btn-dark !py-1.5">กลับไปจัดการร้าน</Link>
+        <div className="rounded-2xl bg-brand/20 border border-brand px-4 py-2.5 text-sm flex flex-wrap items-center justify-between gap-2">
+          <span>👀 <b>มุมมองลิงก์แชร์สาธารณะ:</b> ลูกค้าหรือคนที่ได้รับลิงก์จะเห็นผังหน้านี้โดยไม่ต้องล็อกอิน</span>
+          <div className="flex gap-2">
+            <Link href={`/seller/shops/${shop.id}/plan`} className="btn !py-1.5 text-xs">🎨 เปิดสตูดิโอแต่งผัง</Link>
+            <Link href={`/seller/shops/${shop.id}`} className="btn-dark !py-1.5 text-xs">กลับหน้าจัดการร้าน</Link>
+          </div>
         </div>
       )}
 
-      <div className="grid gap-5 md:grid-cols-[1.3fr_1fr] items-center">
-        <div>
-          <div className="text-sm text-muted font-medium">{cat.icon} {cat.label}</div>
-          <h1 className="text-3xl font-bold mt-1">{shop.name}</h1>
-          <div className="flex flex-wrap items-center gap-2 mt-2 text-sm">
+      <div className="card flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-brand-ink">{cat.icon} ผัง{cat.label}ออนไลน์</div>
+          <h1 className="text-2xl sm:text-3xl font-bold">{shop.name}</h1>
+          {shop.description && <p className="text-sm text-ink2 max-w-2xl">{shop.description}</p>}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
             {mapHref && (
-              <a
-                href={mapHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-xl bg-panel border border-line hover:border-brand hover:bg-brand/15 px-3 py-1.5 text-xs font-medium text-ink transition shadow-2xs"
-              >
-                <span>📍 {shop.location || "ดูตำแหน่งร้าน"}</span>
-                <span className="text-brand-ink font-semibold">· เปิดใน Google Maps ↗</span>
+              <a href={mapHref} target="_blank" rel="noopener noreferrer" className="btn-ghost !py-1 !px-2.5 text-xs">
+                📍 {shop.location || "ดูพิกัด Google Maps"} ↗
               </a>
             )}
             {shop.phone && (
-              <a href={`tel:${shop.phone}`} className="inline-flex items-center gap-1 rounded-xl bg-panel border border-line px-3 py-1.5 text-xs text-ink2">
-                📞 {shop.phone}
+              <a href={`tel:${shop.phone}`} className="btn !py-1 !px-3 text-xs">
+                📞 โทรติดต่อ: {shop.phone}
               </a>
             )}
           </div>
-          {shop.description && <p className="mt-3 text-sm text-ink2 leading-relaxed">{shop.description}</p>}
         </div>
 
-        {shop.coverPhoto && (
-          <div className="rounded-2xl border border-line overflow-hidden bg-panel2 aspect-[16/9] shadow-xs">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/photos/${shop.coverPhoto}`} alt={shop.name} className="size-full object-cover" />
+        <div className="flex items-center gap-3 rounded-2xl bg-panel2 px-4 py-3 border border-line">
+          <div className="text-center px-2">
+            <div className="text-2xl font-extrabold text-ok">{vacant}</div>
+            <div className="text-[11px] text-muted">{cat.unit}ว่าง</div>
           </div>
-        )}
+          <div className="h-8 w-px bg-line" />
+          <div className="text-center px-2">
+            <div className="text-2xl font-extrabold text-ink">{openAssets.length - vacant}</div>
+            <div className="text-[11px] text-muted">มีผู้เช่าแล้ว</div>
+          </div>
+          <div className="h-8 w-px bg-line" />
+          <div className="text-center px-2">
+            <div className="text-2xl font-extrabold text-ink2">{openAssets.length}</div>
+            <div className="text-[11px] text-muted">ทั้งหมด</div>
+          </div>
+        </div>
       </div>
 
-      <section className="space-y-2">
-        <h2 className="font-bold text-lg">🗺️ ผังสถานที่และเลือกตำแหน่ง{cat.unit}เช่า</h2>
-        <FloorPlan shopId={shop.id} category={shop.category} floors={floors} features={shop.features} assets={fp} unit={cat.unit} canRent={canRent} />
-      </section>
-
-      <h2 className="font-semibold">พื้นที่ที่เปิดให้เช่า ({assets.length}) · <span className="text-ok">ว่าง {vacant}</span></h2>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {assets.map((a) => {
-          const st = assetState(a.leases);
-          const busyUntil = a.leases.filter((l) => l.status === "ACTIVE").map((l) => +l.endDate).sort().pop();
-          return (
-            <div key={a.id} className="card">
-              {a.photos[0] && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={`/api/photos/${a.photos[0].id}`} alt={a.code} loading="lazy" className="w-full aspect-video object-cover rounded-xl mb-3 bg-panel2" />
-              )}
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-xl font-bold">{a.code} <span className="text-sm font-normal text-muted">{a.size}</span></div>
-                  <div className="text-sm text-muted">{dimText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)} · {areaText(a.w ?? defaultBox(0).w, a.h ?? defaultBox(0).h)}</div>
-                </div>
-                <StateBadge state={st} />
-              </div>
-              <div className="mt-2 text-brand-ink font-semibold">{baht(a.price)} <span className="text-muted font-normal text-sm">/ {PERIOD[a.period]}</span></div>
-              {a.note && <p className="text-xs text-muted mt-1">{a.note}</p>}
-              {busyUntil && st !== "VACANT" && <p className="text-xs text-muted mt-1">ไม่ว่างถึง {fmtDate(busyUntil)}</p>}
-              {!u ? (
-                <Link href="/login" className="btn-ghost w-full mt-3">เข้าสู่ระบบเพื่อเช่า</Link>
-              ) : canRent ? (
-                <details className="mt-3"><summary className="btn w-full list-none">เช่า</summary><RentForm assetId={a.id} price={a.price} period={a.period} busy={a.leases.filter((l) => l.status === "ACTIVE").map((l) => ({ start: +l.startDate, end: +l.endDate }))} /></details>
-              ) : null}
-            </div>
-          );
-        })}
-        {!assets.length && <p className="text-muted">ร้านนี้ยังไม่มีพื้นที่ที่เปิดให้เช่า</p>}
-      </div>
+      <FloorPlan
+        shopId={shop.id}
+        category={shop.category}
+        floors={floors}
+        features={shop.features}
+        assets={toFP(shop.assets, false, floors[0].id)}
+        unit={cat.unit}
+        title={`${cat.icon} ${shop.name}`}
+      />
     </div>
   );
 }

@@ -17,11 +17,12 @@ CREATE TABLE IF NOT EXISTS leases (id TEXT PRIMARY KEY, status TEXT NOT NULL DEF
 CREATE TABLE IF NOT EXISTS floors (id TEXT PRIMARY KEY, name TEXT NOT NULL, sort INTEGER NOT NULL DEFAULT 0, w INTEGER NOT NULL DEFAULT 1000, h INTEGER NOT NULL DEFAULT 600, shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS features (id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT, x INTEGER NOT NULL, y INTEGER NOT NULL, w INTEGER NOT NULL, h INTEGER NOT NULL, rot INTEGER NOT NULL DEFAULT 0, color TEXT, floor_id TEXT NOT NULL REFERENCES floors(id) ON DELETE CASCADE, shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS asset_photos (id TEXT PRIMARY KEY, file TEXT NOT NULL, mime TEXT NOT NULL, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS plan_versions (id TEXT PRIMARY KEY, shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE, floor_id TEXT NOT NULL REFERENCES floors(id) ON DELETE CASCADE, name TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, amount INTEGER NOT NULL, due_date INTEGER NOT NULL, paid_at INTEGER, lease_id TEXT NOT NULL REFERENCES leases(id) ON DELETE CASCADE);
 `;
 
 // เพิ่มเลขนี้เมื่อแก้ DDL/migrate เพื่อให้ dev server ที่เปิดค้างไว้รัน migrate ซ้ำ
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 13;
 const g = globalThis as unknown as { _sqlite?: Database.Database; _db?: ReturnType<typeof drizzle<typeof schema>>; _schemaVersion?: number };
 
 function migrate(sqlite: Database.Database) {
@@ -43,13 +44,30 @@ function migrate(sqlite: Database.Database) {
   }
   if (!scols.includes("map_url")) sqlite.exec("ALTER TABLE shops ADD COLUMN map_url TEXT");
   if (!scols.includes("cover_photo")) sqlite.exec("ALTER TABLE shops ADD COLUMN cover_photo TEXT");
+  // migrate: ช่องทางรับเงินของร้าน (บัญชีธนาคาร / พร้อมเพย์ / รูป QR)
+  for (const c of ["pay_bank", "pay_account_no", "pay_account_name", "pay_promptpay", "pay_qr", "pay_note"])
+    if (!scols.includes(c)) sqlite.exec(`ALTER TABLE shops ADD COLUMN ${c} TEXT`);
 
   const fcols = (sqlite.prepare("PRAGMA table_info(features)").all() as { name: string }[]).map((c) => c.name);
   if (!fcols.includes("rot")) sqlite.exec("ALTER TABLE features ADD COLUMN rot INTEGER NOT NULL DEFAULT 0");
   if (!fcols.includes("color")) sqlite.exec("ALTER TABLE features ADD COLUMN color TEXT");
+  // migrate: จับกลุ่ม/ล็อกชิ้นงาน (ทั้งห้องเช่าและองค์ประกอบ)
+  if (!fcols.includes("grp")) sqlite.exec("ALTER TABLE features ADD COLUMN grp TEXT");
+  if (!fcols.includes("locked")) sqlite.exec("ALTER TABLE features ADD COLUMN locked INTEGER NOT NULL DEFAULT 0");
+  if (!cols.includes("grp")) sqlite.exec("ALTER TABLE assets ADD COLUMN grp TEXT");
+  if (!cols.includes("locked")) sqlite.exec("ALTER TABLE assets ADD COLUMN locked INTEGER NOT NULL DEFAULT 0");
+  // migrate: รูปแบบแปลน/ภาพถ่ายเป็นพื้นหลังของชั้น
+  const flcols = (sqlite.prepare("PRAGMA table_info(floors)").all() as { name: string }[]).map((c) => c.name);
+  for (const [c, def] of [["bg_image", "TEXT"], ["bg_x", "INTEGER NOT NULL DEFAULT 0"], ["bg_y", "INTEGER NOT NULL DEFAULT 0"], ["bg_w", "INTEGER"], ["bg_h", "INTEGER"], ["bg_opacity", "INTEGER NOT NULL DEFAULT 50"], ["bg_show", "INTEGER NOT NULL DEFAULT 1"]])
+    if (!flcols.includes(c)) sqlite.exec(`ALTER TABLE floors ADD COLUMN ${c} ${def}`);
   const lcols = (sqlite.prepare("PRAGMA table_info(leases)").all() as { name: string }[]).map((c) => c.name);
   if (!lcols.includes("guest_name")) sqlite.exec("ALTER TABLE leases ADD COLUMN guest_name TEXT");
   if (!lcols.includes("guest_phone")) sqlite.exec("ALTER TABLE leases ADD COLUMN guest_phone TEXT");
+  // migrate: สลิปโอนเงิน (แนบตอนขอเช่า = งวดแรก, และแนบรายงวด)
+  if (!lcols.includes("slip")) sqlite.exec("ALTER TABLE leases ADD COLUMN slip TEXT");
+  const pcols = (sqlite.prepare("PRAGMA table_info(payments)").all() as { name: string }[]).map((c) => c.name);
+  if (!pcols.includes("slip")) sqlite.exec("ALTER TABLE payments ADD COLUMN slip TEXT");
+  if (!pcols.includes("slip_at")) sqlite.exec("ALTER TABLE payments ADD COLUMN slip_at INTEGER");
   // migrate: ร้านที่ยังไม่มีชั้น ให้สร้าง "ชั้น 1" แล้วย้ายรายการเดิมเข้าไป
   const noFloor = sqlite.prepare("SELECT id FROM shops WHERE id NOT IN (SELECT shop_id FROM floors)").all() as { id: string }[];
   for (const { id } of noFloor) {

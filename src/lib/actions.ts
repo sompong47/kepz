@@ -1,13 +1,13 @@
 "use server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { db, users, shops, assets, leases, payments, floors, features, assetPhotos, floorsOf } from "@/db";
-import { MAX_BYTES, MAX_PER_ASSET, removePhotoFile, removePhotoFilesOf, savePhotoFile, sniffImage } from "./photos";
+import { db, users, shops, assets, leases, payments, floors, features, assetPhotos, planVersions, floorsOf } from "@/db";
+import { MAX_BYTES, MAX_PER_ASSET, readPhotoFile, removePhotoFile, removePhotoFilesOf, savePhotoFile, sniffImage } from "./photos";
 import { createSession, destroySession, getUser, homeFor, requireRole, requireUser } from "./auth";
-import { buildPayments, CATEGORIES, CANVAS, FEATURES, FLOOR_TEMPLATES, MIN_ASSET_PX, defaultBox, toPx, type FeatureKind } from "./domain";
+import { buildPayments, CATEGORIES, CANVAS, FEATURES, FLOOR_TEMPLATES, MIN_ASSET_PX, defaultBox, toPx, type FeatureKind, hasPayInfo } from "./domain";
 
 export type FormState = { error?: string; ids?: string[] } | undefined;
 const s = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -126,9 +126,10 @@ export async function deleteAsset(assetId: string, shopId: string) {
 /* ---------- เปิดให้เช่า ---------- */
 /** เปิด/ปิดร้าน; จะเปิดได้ต้องมีอย่างน้อย 1 รายการที่เปิดให้เช่า */
 export async function setShopPublished(shopId: string, published: boolean): Promise<FormState> {
-  await ownShop(shopId);
+  const shop = await ownShop(shopId);
   if (published && !(await db.query.assets.findFirst({ where: and(eq(assets.shopId, shopId), eq(assets.listed, true)) })))
     return { error: "ยังไม่มีรายการที่เปิดให้เช่า — ตั้งราคาและเปิดให้เช่าอย่างน้อย 1 รายการก่อน" };
+  if (published && !hasPayInfo(shop)) return { error: "ยังไม่ได้ตั้งช่องทางรับเงิน — ใส่บัญชีธนาคาร พร้อมเพย์ หรือรูป QR ก่อนเปิดร้าน" };
   await db.update(shops).set({ published: !!published }).where(eq(shops.id, shopId));
   revalidatePath("/", "layout");
   return { error: undefined };
@@ -201,7 +202,8 @@ export async function decideLease(leaseId: string, decision: "ACTIVE" | "REJECTE
     if (clash) return;
     await db.update(leases).set({ status: "ACTIVE" }).where(eq(leases.id, leaseId));
     const rows = buildPayments({ price: lease.asset.price, period: lease.asset.period, start: lease.startDate, end: lease.endDate, billing: lease.billing });
-    await db.insert(payments).values(rows.map((r) => ({ ...r, leaseId })));
+    // สลิปที่แนบมาตอนขอเช่า = สลิปของงวดแรก
+    await db.insert(payments).values(rows.map((r, i) => ({ ...r, leaseId, ...(i === 0 && lease.slip && { slip: lease.slip, slipAt: lease.createdAt ?? new Date() }) })));
   } else {
     await db.update(leases).set({ status: decision }).where(eq(leases.id, leaseId));
   }
@@ -268,11 +270,11 @@ export async function addShape(shopId: string, floorId: string, shape: "RECT" | 
   return a.id;
 }
 
-export async function saveLayout(shopId: string, assetId: string, b: Box & { shape: "RECT" | "CIRCLE" }) {
+export async function saveLayout(shopId: string, assetId: string, b: Box & { shape: "RECT" | "CIRCLE" | "L" }) {
   await ownShop(shopId);
   const a = await db.query.assets.findFirst({ where: and(eq(assets.id, assetId), eq(assets.shopId, shopId)), with: { floor: true } });
   if (!a) return;
-  await db.update(assets).set({ ...fit({ ...b, rot: b.rot ?? a.rot }, a.floor ?? CANVAS, MIN_ASSET_PX), shape: b.shape === "CIRCLE" ? "CIRCLE" : "RECT" }).where(eq(assets.id, assetId));
+  await db.update(assets).set({ ...fit({ ...b, rot: b.rot ?? a.rot }, a.floor ?? CANVAS, MIN_ASSET_PX), shape: b.shape === "CIRCLE" || b.shape === "L" ? b.shape : "RECT" }).where(eq(assets.id, assetId));
 }
 
 export async function duplicateAsset(shopId: string, assetId: string) {
@@ -395,7 +397,7 @@ const boxSchema = { x: z.number(), y: z.number(), w: z.number(), h: z.number(), 
 const snapSchema = z.array(z.discriminatedUnion("t", [
   z.object({
     t: z.literal("A"), ...boxSchema, code: z.string().trim().min(1).max(40), size: z.string().max(40).nullable(), price: z.number().min(0), listed: z.boolean().optional(),
-    period: z.enum(["DAY", "MONTH"]), note: z.string().max(500).nullable(), shape: z.enum(["RECT", "CIRCLE"]),
+    period: z.enum(["DAY", "MONTH"]), note: z.string().max(500).nullable(), shape: z.enum(["RECT", "CIRCLE", "L"]),
     photos: z.array(z.object({ file: z.string().regex(/^[0-9a-f-]{36}\.(jpg|png|gif|webp)$/) })).max(MAX_PER_ASSET).optional(),
   }),
   z.object({ t: z.literal("F"), ...boxSchema, kind: z.enum(Object.keys(FEATURES) as [FeatureKind, ...FeatureKind[]]), label: z.string().max(60).nullable(), color: z.string().regex(/^#[0-9a-f]{6}$/i).nullable().optional() }),
@@ -529,7 +531,15 @@ export async function requestLease(assetId: string, _: FormState, f: FormData): 
   if (await hasOverlap(assetId, start, end)) return { error: "ช่วงเวลานี้มีผู้เช่าแล้ว" };
   const b = s(f, "billing");
   const billing = b === "HALF_YEAR" || b === "YEAR" ? b : "MONTH";
-  await db.insert(leases).values({ assetId, tenantId: u.id, startDate: start, endDate: end, billing });
+  // สลิปงวดแรก (ไม่บังคับ)
+  const slipFile = f.get("slip");
+  let slip: string | null = null;
+  if (slipFile instanceof File && slipFile.size) {
+    const r = await storeSlip(slipFile);
+    if ("error" in r) return r;
+    slip = r.name;
+  }
+  await db.insert(leases).values({ assetId, tenantId: u.id, startDate: start, endDate: end, billing, slip });
   redirect("/tenant");
 }
 
@@ -638,6 +648,68 @@ export async function updateShop(shopId: string, _: FormState, f: FormData): Pro
   return { error: undefined, ids: ["saved"] };
 }
 
+/** บันทึกช่องทางรับเงิน: บัญชีธนาคาร / พร้อมเพย์ / รูป QR (อย่างน้อย 1 ทาง) */
+export async function savePaymentInfo(shopId: string, _: FormState, f: FormData): Promise<FormState> {
+  const shop = await ownShop(shopId);
+  const bank = s(f, "payBank").slice(0, 60);
+  const accountNo = s(f, "payAccountNo").replace(/[^\d-]/g, "").slice(0, 30);
+  const accountName = s(f, "payAccountName").slice(0, 100);
+  const promptpay = s(f, "payPromptpay").replace(/\D/g, "");
+  const note = s(f, "payNote").slice(0, 300);
+  if ((bank || accountNo || accountName) && !(bank && accountNo && accountName)) return { error: "กรอกธนาคาร เลขบัญชี และชื่อบัญชีให้ครบ" };
+  if (accountNo && accountNo.replace(/\D/g, "").length < 10) return { error: "เลขบัญชีต้องมีอย่างน้อย 10 หลัก" };
+  if (promptpay && promptpay.length !== 10 && promptpay.length !== 13) return { error: "พร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก หรือเลขบัตรประชาชน 13 หลัก" };
+
+  let qr = shop.payQr;
+  const file = f.get("payQrFile");
+  if (file instanceof File && file.size) {
+    if (file.size > MAX_BYTES) return { error: "รูป QR ใหญ่เกิน 5MB" };
+    const data = new Uint8Array(await file.arrayBuffer());
+    const kind = sniffImage(data);
+    if (!kind) return { error: "รูป QR รองรับเฉพาะ JPG, PNG, WEBP, GIF" };
+    if (qr) await removePhotoFile(qr);
+    qr = `${crypto.randomUUID()}.${kind.ext}`;
+    await savePhotoFile(qr, data);
+  } else if (f.get("removeQr") === "on" && qr) {
+    await removePhotoFile(qr);
+    qr = null;
+  }
+  const info = { payBank: bank || null, payAccountNo: accountNo || null, payAccountName: accountName || null, payPromptpay: promptpay || null, payQr: qr, payNote: note || null };
+  if (!hasPayInfo(info)) return { error: "ใส่ช่องทางรับเงินอย่างน้อย 1 ทาง: บัญชีธนาคาร พร้อมเพย์ หรือรูป QR" };
+  await db.update(shops).set(info).where(eq(shops.id, shopId));
+  revalidatePath("/", "layout");
+  return { error: undefined };
+}
+
+/* ---------- สลิปโอนเงิน ---------- */
+async function storeSlip(file: File): Promise<{ name: string } | { error: string }> {
+  if (file.size > MAX_BYTES) return { error: "รูปสลิปใหญ่เกิน 5MB" };
+  const data = new Uint8Array(await file.arrayBuffer());
+  const kind = sniffImage(data);
+  if (!kind) return { error: "สลิปต้องเป็นรูป JPG, PNG, WEBP หรือ GIF" };
+  const name = `${crypto.randomUUID()}.${kind.ext}`;
+  await savePhotoFile(name, data);
+  return { name };
+}
+
+/** เจ้าของร้านแนบสลิปที่ผู้เช่าส่งมา ให้กับงวดที่ยังไม่ยืนยันรับเงิน (แนบใหม่ = แทนที่สลิปเดิม) */
+export async function uploadPaymentSlip(paymentId: string, f: FormData): Promise<FormState> {
+  const pay = await db.query.payments.findFirst({ where: eq(payments.id, paymentId), with: { lease: { with: { asset: true } } } });
+  if (!pay) return { error: "ไม่พบงวดชำระนี้" };
+  await ownShop(pay.lease.asset.shopId);
+  if (pay.paidAt) return { error: "งวดนี้ยืนยันรับเงินแล้ว" };
+  const file = f.get("file");
+  if (!(file instanceof File) || !file.size) return { error: "เลือกรูปสลิปก่อน" };
+  const r = await storeSlip(file);
+  if ("error" in r) return r;
+  // สลิปเดิมลบได้เฉพาะเมื่อไม่ได้ใช้ร่วมกับคำขอเช่า
+  if (pay.slip && pay.slip !== pay.lease.slip) await removePhotoFile(pay.slip);
+  await db.update(payments).set({ slip: r.name, slipAt: new Date() }).where(eq(payments.id, paymentId));
+  revalidatePath("/tenant");
+  revalidatePath("/seller", "layout");
+  return { error: undefined };
+}
+
 export async function uploadShopCover(shopId: string, f: FormData): Promise<FormState> {
   const shop = await ownShop(shopId);
   const file = f.get("file");
@@ -725,3 +797,292 @@ export async function createWalkInLease(shopId: string, _: FormState, f: FormDat
   revalidatePath("/", "layout");
   return { error: undefined, ids: [lease.id] };
 }
+
+/* =====================================================================
+ * เครื่องมือผังเพิ่มเติม: รูปพื้นหลัง · ตั้งรหัสใหม่ · ปรับราคาหลายช่อง · คัดลอกชั้น
+ *                    · จับกลุ่ม/ล็อก · บันทึกเวอร์ชันผัง
+ * ===================================================================== */
+
+/** ไฟล์นี้ยังถูกอ้างอิงในเวอร์ชันผังที่บันทึกไว้ไหม (ถ้าใช่ ห้ามลบไฟล์ เพื่อให้กู้เวอร์ชันได้) */
+async function fileInVersions(name: string) {
+  return !!(await db.query.planVersions.findFirst({ where: like(planVersions.data, `%${name}%`), columns: { id: true } }));
+}
+
+/* ---------- รูปแบบแปลน/ภาพถ่ายเป็นพื้นหลังของชั้น ---------- */
+export async function uploadFloorBg(shopId: string, floorId: string, f: FormData): Promise<FormState> {
+  const floor = await ownFloor(shopId, floorId);
+  const file = f.get("file");
+  if (!(file instanceof File) || !file.size) return { error: "เลือกรูปก่อน" };
+  if (file.size > MAX_BYTES) return { error: "รูปใหญ่เกิน 5MB" };
+  const data = new Uint8Array(await file.arrayBuffer());
+  const kind = sniffImage(data);
+  if (!kind) return { error: "รองรับเฉพาะ JPG, PNG, WEBP, GIF" };
+  // อัตราส่วนรูปจากเบราว์เซอร์ ใช้ตั้งขนาดเริ่มต้นให้พอดีความกว้างชั้น
+  const iw = Number(f.get("iw")) || 1, ih = Number(f.get("ih")) || 1;
+  const name = `${crypto.randomUUID()}.${kind.ext}`;
+  await savePhotoFile(name, data);
+  if (floor.bgImage && !(await fileInVersions(floor.bgImage))) await removePhotoFile(floor.bgImage);
+  const w = floor.w, h = Math.max(20, Math.round((floor.w * ih) / iw));
+  await db.update(floors).set({ bgImage: name, bgX: 0, bgY: 0, bgW: w, bgH: h, bgShow: true }).where(eq(floors.id, floorId));
+  revalidatePath(`/seller/shops/${shopId}`, "layout");
+  return { error: undefined };
+}
+
+export async function updateFloorBg(shopId: string, floorId: string, v: { x?: number; y?: number; w?: number; h?: number; opacity?: number; show?: boolean }) {
+  await ownFloor(shopId, floorId);
+  const n = (x: unknown, lo: number, hi: number) => (x === undefined ? undefined : clamp(Number(x), lo, hi));
+  await db.update(floors).set({
+    ...(v.x !== undefined && { bgX: n(v.x, -CANVAS.maxW, CANVAS.maxW) }),
+    ...(v.y !== undefined && { bgY: n(v.y, -CANVAS.maxH, CANVAS.maxH) }),
+    ...(v.w !== undefined && { bgW: n(v.w, 20, CANVAS.maxW * 4) }),
+    ...(v.h !== undefined && { bgH: n(v.h, 20, CANVAS.maxH * 4) }),
+    ...(v.opacity !== undefined && { bgOpacity: n(v.opacity, 5, 100) }),
+    ...(v.show !== undefined && { bgShow: !!v.show }),
+  }).where(eq(floors.id, floorId));
+}
+
+export async function removeFloorBg(shopId: string, floorId: string) {
+  const floor = await ownFloor(shopId, floorId);
+  if (floor.bgImage && !(await fileInVersions(floor.bgImage))) await removePhotoFile(floor.bgImage);
+  await db.update(floors).set({ bgImage: null, bgW: null, bgH: null }).where(eq(floors.id, floorId));
+  revalidatePath(`/seller/shops/${shopId}`, "layout");
+}
+
+/* ---------- ตั้งรหัสใหม่ทั้งชุด (ตามลำดับที่ส่งมา) ---------- */
+export async function renumberAssets(shopId: string, orderedIds: string[], o: { prefix: string; start: number; pad: number }): Promise<FormState> {
+  await ownShop(shopId);
+  const prefix = String(o.prefix ?? "").trim().slice(0, 5);
+  if (/\d/.test(prefix)) return { error: "คำนำหน้าห้ามมีตัวเลข" };
+  const startNo = clamp(o.start, 0, 9999), pad = clamp(o.pad, 1, 4);
+  const ids = (Array.isArray(orderedIds) ? orderedIds : []).filter((i) => typeof i === "string").slice(0, 1000);
+  const rows = await db.query.assets.findMany({ where: and(eq(assets.shopId, shopId), inArray(assets.id, ids)), columns: { id: true } });
+  const mine = new Set(rows.map((r) => r.id));
+  const order = ids.filter((i) => mine.has(i));
+  if (!order.length) return { error: "ยังไม่ได้เลือกรายการเช่า" };
+  const next = new Map(order.map((id, i) => [id, prefix + String(startNo + i).padStart(pad, "0")]));
+  // รหัสใหม่ต้องไม่ชนกับรายการอื่นที่ไม่ได้เลือก
+  const others = await db.query.assets.findMany({ where: eq(assets.shopId, shopId), columns: { id: true, code: true } });
+  const clash = others.filter((a) => !mine.has(a.id) && [...next.values()].includes(a.code)).map((a) => a.code);
+  if (clash.length) return { error: `รหัสซ้ำกับรายการอื่น: ${clash.slice(0, 8).join(", ")} — ลองเปลี่ยนคำนำหน้าหรือเลขเริ่มต้น` };
+  db.transaction((tx) => {
+    // เปลี่ยนเป็นรหัสชั่วคราวก่อน กันชน unique index ระหว่างสลับรหัสกันเอง
+    for (const id of order) tx.update(assets).set({ code: `__tmp_${id}` }).where(eq(assets.id, id)).run();
+    for (const [id, code] of next) tx.update(assets).set({ code }).where(eq(assets.id, id)).run();
+  });
+  revalidatePath(`/seller/shops/${shopId}`, "layout");
+  return { error: undefined };
+}
+
+/* ---------- ปรับราคาหลายช่อง (ทั้งโซน) ---------- */
+export async function adjustPrices(shopId: string, ids: string[], v: { mode: "set" | "pct" | "add"; value: number; period?: "DAY" | "MONTH" }) {
+  await ownShop(shopId);
+  const list = (Array.isArray(ids) ? ids : []).filter((i) => typeof i === "string").slice(0, 1000);
+  const val = Number(v.value);
+  if (!list.length || !Number.isFinite(val)) return { updated: 0 };
+  const rows = await db.query.assets.findMany({ where: and(eq(assets.shopId, shopId), inArray(assets.id, list)) });
+  const period = v.period === "DAY" || v.period === "MONTH" ? v.period : undefined;
+  db.transaction((tx) => {
+    for (const a of rows) {
+      const p = v.mode === "set" ? val : v.mode === "pct" ? a.price * (1 + val / 100) : a.price + val;
+      tx.update(assets).set({ price: Math.max(0, Math.round(p)), ...(period && { period }) }).where(eq(assets.id, a.id)).run();
+    }
+  });
+  revalidatePath(`/seller/shops/${shopId}`, "layout");
+  return { updated: rows.length };
+}
+
+/* ---------- คัดลอกทั้งชั้น ---------- */
+export async function duplicateFloor(shopId: string, floorId: string): Promise<string | null> {
+  const floor = await ownFloor(shopId, floorId);
+  const [list, fs, as] = await Promise.all([
+    floorsOf(shopId),
+    db.query.features.findMany({ where: eq(features.floorId, floorId) }),
+    db.query.assets.findMany({ where: and(eq(assets.shopId, shopId), eq(assets.floorId, floorId)) }),
+  ]);
+  // รูปพื้นหลังคัดลอกเป็นไฟล์ใหม่ (ลบของชั้นหนึ่งแล้วอีกชั้นไม่หาย)
+  let bgImage: string | null = null;
+  if (floor.bgImage) {
+    try {
+      const data = await readPhotoFile(floor.bgImage);
+      bgImage = `${crypto.randomUUID()}.${floor.bgImage.split(".").pop()}`;
+      await savePhotoFile(bgImage, new Uint8Array(data));
+    } catch { bgImage = null; }
+  }
+  const codes = new Set((await db.query.assets.findMany({ where: eq(assets.shopId, shopId), columns: { code: true } })).map((a) => a.code));
+  const newCode = (code: string) => {
+    const prefix = code.match(/^\D*/)?.[0] || "A";
+    let n = 1;
+    while (codes.has(prefix + String(n).padStart(2, "0"))) n++;
+    const c = prefix + String(n).padStart(2, "0");
+    codes.add(c);
+    return c;
+  };
+  const grpMap = new Map<string, string>();
+  const regroup = (g: string | null) => (g ? (grpMap.get(g) ?? (grpMap.set(g, crypto.randomUUID()), grpMap.get(g)!)) : null);
+  const sortedAssets = [...as].sort((a, b) => a.code.localeCompare(b.code, "th", { numeric: true }));
+  const id = db.transaction((tx) => {
+    const { id: nid } = tx.insert(floors).values({
+      shopId, name: `${floor.name} (สำเนา)`.slice(0, 40), sort: list.length, w: floor.w, h: floor.h,
+      bgImage, bgX: floor.bgX, bgY: floor.bgY, bgW: floor.bgW, bgH: floor.bgH, bgOpacity: floor.bgOpacity, bgShow: floor.bgShow,
+    }).returning({ id: floors.id }).get();
+    if (fs.length) tx.insert(features).values(fs.map((f) => ({ shopId, floorId: nid, kind: f.kind, label: f.label, x: f.x, y: f.y, w: f.w, h: f.h, rot: f.rot, color: f.color, grp: regroup(f.grp), locked: f.locked }))).run();
+    if (sortedAssets.length) tx.insert(assets).values(sortedAssets.map((a) => ({
+      shopId, floorId: nid, code: newCode(a.code), size: a.size, price: a.price, period: a.period, note: a.note,
+      x: a.x, y: a.y, w: a.w, h: a.h, rot: a.rot, shape: a.shape, listed: a.listed, grp: regroup(a.grp), locked: a.locked,
+    }))).run();
+    return nid;
+  });
+  revalidatePath(`/seller/shops/${shopId}`, "layout");
+  return id;
+}
+
+/* ---------- จับกลุ่ม / ล็อกชิ้นงาน ---------- */
+export async function setGroup(shopId: string, ids: string[], group: boolean) {
+  await ownShop(shopId);
+  const list = (Array.isArray(ids) ? ids : []).filter((i) => typeof i === "string").slice(0, 1000);
+  if (!list.length) return null;
+  const grp = group && list.length > 1 ? crypto.randomUUID() : null;
+  db.transaction((tx) => {
+    tx.update(assets).set({ grp }).where(and(eq(assets.shopId, shopId), inArray(assets.id, list))).run();
+    tx.update(features).set({ grp }).where(and(eq(features.shopId, shopId), inArray(features.id, list))).run();
+  });
+  return grp;
+}
+
+export async function setLocked(shopId: string, ids: string[], locked: boolean) {
+  await ownShop(shopId);
+  const list = (Array.isArray(ids) ? ids : []).filter((i) => typeof i === "string").slice(0, 1000);
+  if (!list.length) return;
+  db.transaction((tx) => {
+    tx.update(assets).set({ locked: !!locked }).where(and(eq(assets.shopId, shopId), inArray(assets.id, list))).run();
+    tx.update(features).set({ locked: !!locked }).where(and(eq(features.shopId, shopId), inArray(features.id, list))).run();
+  });
+}
+
+/* ---------- บันทึกเวอร์ชันผัง (ต่อชั้น) ---------- */
+const VERSIONS_KEEP = 30;
+async function snapshotFloor(floorId: string) {
+  const [floor, fs, as] = await Promise.all([
+    db.query.floors.findFirst({ where: eq(floors.id, floorId) }),
+    db.query.features.findMany({ where: eq(features.floorId, floorId) }),
+    db.query.assets.findMany({ where: eq(assets.floorId, floorId) }),
+  ]);
+  if (!floor) return null;
+  return {
+    floor: omit(floor, ["id", "shopId", "sort"]),
+    features: fs.map((f) => omit(f, ["id", "shopId", "floorId"])),
+    assets: as.map((a) => omit(a, ["shopId", "floorId"])),
+  };
+}
+function omit<T extends object, K extends keyof T>(o: T, keys: K[]): Omit<T, K> {
+  const r = { ...o };
+  for (const k of keys) delete r[k];
+  return r;
+}
+type PlanSnapshot = NonNullable<Awaited<ReturnType<typeof snapshotFloor>>>;
+
+async function insertVersion(shopId: string, floorId: string, name: string) {
+  const snap = await snapshotFloor(floorId);
+  if (!snap) return;
+  await db.insert(planVersions).values({ shopId, floorId, name: name.slice(0, 60), data: JSON.stringify(snap) });
+  const old = await db.query.planVersions.findMany({ where: eq(planVersions.floorId, floorId), orderBy: desc(planVersions.createdAt), columns: { id: true } });
+  if (old.length > VERSIONS_KEEP) await db.delete(planVersions).where(inArray(planVersions.id, old.slice(VERSIONS_KEEP).map((v) => v.id)));
+}
+
+export async function savePlanVersion(shopId: string, floorId: string, name: string): Promise<FormState> {
+  await ownFloor(shopId, floorId);
+  const label = String(name ?? "").trim() || `เวอร์ชัน ${new Date().toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" })}`;
+  await insertVersion(shopId, floorId, label);
+  return { error: undefined };
+}
+
+export async function listPlanVersions(shopId: string, floorId: string) {
+  await ownFloor(shopId, floorId);
+  const rows = await db.query.planVersions.findMany({ where: eq(planVersions.floorId, floorId), orderBy: desc(planVersions.createdAt) });
+  return rows.map((v) => {
+    const d = JSON.parse(v.data) as PlanSnapshot;
+    return { id: v.id, name: v.name, createdAt: +(v.createdAt ?? 0), units: d.assets.length, elements: d.features.length };
+  });
+}
+
+export async function deletePlanVersion(shopId: string, versionId: string) {
+  await ownShop(shopId);
+  await db.delete(planVersions).where(and(eq(planVersions.id, versionId), eq(planVersions.shopId, shopId)));
+}
+
+/** กู้ผังกลับเป็นเวอร์ชันที่เลือก (บันทึกผังปัจจุบันเป็นเวอร์ชันก่อนเสมอ เพื่อย้อนกลับได้)
+ *  ห้อง/ช่องที่มีสัญญาหรือคำขอเช่าค้างอยู่จะไม่ถูกลบ */
+export async function restorePlanVersion(shopId: string, versionId: string): Promise<{ error?: string; skipped?: string[] }> {
+  await ownShop(shopId);
+  const v = await db.query.planVersions.findFirst({ where: and(eq(planVersions.id, versionId), eq(planVersions.shopId, shopId)) });
+  if (!v) return { error: "ไม่พบเวอร์ชันนี้" };
+  const floor = await ownFloor(shopId, v.floorId);
+  const snap = JSON.parse(v.data) as PlanSnapshot;
+  await insertVersion(shopId, floor.id, `ก่อนกู้คืน “${v.name}”`.slice(0, 60));
+
+  const current = await db.query.assets.findMany({ where: eq(assets.floorId, floor.id), with: { leases: true } });
+  const keepIds = new Set(snap.assets.map((a) => a.id));
+  const busy = (a: (typeof current)[number]) => a.leases.some((l) => l.status === "ACTIVE" || l.status === "PENDING");
+  const extra = current.filter((a) => !keepIds.has(a.id));
+  const removable = extra.filter((a) => !busy(a)).map((a) => a.id);
+  const skipped = extra.filter(busy).map((a) => a.code);
+  await removePhotoFilesOf(removable);
+  const codes = new Map((await db.query.assets.findMany({ where: eq(assets.shopId, shopId), columns: { id: true, code: true } })).map((a) => [a.code, a.id]));
+  const bgOk = !snap.floor.bgImage || (await readPhotoFile(snap.floor.bgImage).then(() => true, () => false));
+
+  db.transaction((tx) => {
+    tx.update(floors).set({ ...snap.floor, bgImage: bgOk ? snap.floor.bgImage : null }).where(eq(floors.id, floor.id)).run();
+    tx.delete(features).where(eq(features.floorId, floor.id)).run();
+    if (snap.features.length) tx.insert(features).values(snap.features.map((f) => ({ ...f, shopId, floorId: floor.id }))).run();
+    if (removable.length) tx.delete(assets).where(inArray(assets.id, removable)).run();
+    for (const a of snap.assets) {
+      const owner = codes.get(a.code);
+      const codeFree = !owner || owner === a.id;
+      if (current.some((c) => c.id === a.id)) {
+        const { id, code, ...rest } = a;
+        tx.update(assets).set({ ...rest, ...(codeFree && { code }) }).where(eq(assets.id, id)).run();
+        if (codeFree) codes.set(code, id);
+      } else {
+        // ห้องที่ถูกลบไปหลังบันทึกเวอร์ชัน: สร้างกลับด้วย id เดิม (ถ้ารหัสถูกใช้ไปแล้วใช้รหัสชั่วคราว)
+        const code = codeFree ? a.code : `${a.code}-${a.id.slice(0, 4)}`;
+        tx.insert(assets).values({ ...a, code, shopId, floorId: floor.id }).onConflictDoNothing().run();
+        codes.set(code, a.id);
+      }
+    }
+  });
+  revalidatePath(`/seller/shops/${shopId}`, "layout");
+  return { skipped };
+}
+
+/* ---------- สลับสถานะ ว่าง ↔ มีผู้เช่า/จองแล้ว แบบ 1-Click บนผัง (ไม่ต้องกรอกฟอร์มยาว) ---------- */
+export async function quickSetAssetStatus(shopId: string, assetId: string, target: "VACANT" | "OCCUPIED", label?: string) {
+  await ownShop(shopId);
+  const u = await requireUser();
+  const asset = await db.query.assets.findFirst({ where: and(eq(assets.id, assetId), eq(assets.shopId, shopId)), with: { leases: true } });
+  if (!asset) return;
+
+  if (target === "VACANT") {
+    const activeIds = asset.leases.filter((l) => l.status === "ACTIVE" || l.status === "PENDING").map((l) => l.id);
+    if (activeIds.length) {
+      await db.update(leases).set({ status: "ENDED" }).where(inArray(leases.id, activeIds));
+    }
+  } else {
+    const hasActive = asset.leases.some((l) => l.status === "ACTIVE" && +l.endDate >= Date.now());
+    if (!hasActive) {
+      const start = new Date();
+      const end = new Date(Date.now() + 365 * 86400000);
+      await db.insert(leases).values({
+        assetId: asset.id,
+        tenantId: u.id,
+        guestName: (label || "มีผู้เช่า / จองแล้ว").slice(0, 60),
+        status: "ACTIVE",
+        startDate: start,
+        endDate: end,
+        billing: "MONTH",
+      });
+    }
+  }
+  revalidatePath(`/seller/shops/${shopId}`, "layout");
+  revalidatePath(`/shops/${shopId}`);
+}
+
