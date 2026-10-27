@@ -6,14 +6,17 @@ import Footer from "@/components/Footer";
 
 const kanit = Kanit({ subsets: ["thai", "latin"], weight: ["300", "400", "500", "600", "700"], variable: "--font-kanit", display: "swap" });
 
-export const metadata: Metadata = { title: "kepz. — ระบบจัดการเช่า", description: "แพลตฟอร์มจัดการห้องเก็บของ ที่จอดรถ แผงตลาด รถเช่า เรือเช่า" };
+export const metadata: Metadata = {
+  title: "kepz. — สตูดิโอออกแบบผังและจัดการพื้นที่เช่า",
+  description: "แพลตฟอร์มออกแบบผังห้องเก็บของ ที่จอดรถ แผงตลาด รถเช่า เรือเช่า สไตล์ Canva",
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th" className={kanit.variable}>
       <body className="font-sans antialiased min-h-screen flex flex-col">
         <Header />
-        <main className="mx-auto w-full max-w-6xl px-4 py-6 flex-1">{children}</main>
+        <main className="mx-auto w-full max-w-6xl px-3 sm:px-5 py-4 sm:py-6 flex-1">{children}</main>
         <Footer />
       </body>
     </html>

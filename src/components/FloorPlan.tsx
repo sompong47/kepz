@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   addShape, saveLayout, updateAsset, duplicateAsset, markPaid, pasteItems,
   addFeature, saveFeature, setFeatureColor, duplicateFeature, deleteItems, addFloor, updateFloor, deleteFloor, generateLayout, applyTemplate,
-  updateFloorBg, duplicateFloor, setGroup, setLocked,
+  updateFloorBg, duplicateFloor, setGroup, setLocked, quickSetAssetStatus,
 } from "@/lib/actions";
 import {
   BILLING, CATEGORIES, CANVAS, FEATURES, FLOOR_TEMPLATES, LAYOUT_PRESET, MIN_ASSET_PX, areaText, dimText, toM, toPx, PERIOD, STATE_CLASS, STATE_LABEL, baht, fmtDate,
@@ -17,7 +17,7 @@ import { SlipLink } from "./Slip";
 import { BulkListing } from "./Listing";
 import Photos from "./Photos";
 import { LogoMark } from "./Brand";
-import { BgPanel, ColorModeBar, PriceAdjust, RenumberBox, ShortcutsModal, VersionsPanel, paint, type ColorMode } from "./PlanTools";
+import { BgPanel, CANVAS_THEMES, ColorModeBar, PriceAdjust, RenumberBox, ShareExportModal, ShortcutsModal, VersionsPanel, paint, type CanvasTheme, type ColorMode } from "./PlanTools";
 
 type Mode = "move" | "rot" | "nw" | "ne" | "sw" | "se";
 type Rect = { x: number; y: number; w: number; h: number };
@@ -199,6 +199,8 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   const [colorMode, setColorMode] = useState<ColorMode>("status");
   const [guides, setGuides] = useState<Guides | null>(null);
   const [showKeys, setShowKeys] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [canvasTheme, setCanvasTheme] = useState<CanvasTheme>("warm");
   // รูปพื้นหลัง: ค่าที่แก้ในเบราว์เซอร์ (บันทึกลงเซิร์ฟเวอร์แบบหน่วงเวลา)
   const [bgLocal, setBgLocal] = useState<Record<string, Partial<FPFloor>>>({});
   const [bgEdit, setBgEdit] = useState(false);
@@ -261,7 +263,13 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setVp({ w: el.clientWidth, h: el.clientHeight }));
+    const updateSize = () => {
+      // ใช้ offsetWidth/offsetHeight (ไม่กระเพื่อมตาม scrollbar) เพื่อป้องกัน Infinite Loop บน Windows
+      const w = el.offsetWidth, h = el.offsetHeight;
+      setVp((prev) => (Math.abs(prev.w - w) <= 1 && Math.abs(prev.h - h) <= 1 ? prev : { w, h }));
+    };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
     ro.observe(el);
     return () => ro.disconnect();
   }, [W]);
@@ -1048,19 +1056,20 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             onPointerDownCapture={onTouchDown} onPointerMoveCapture={onTouchMove} onPointerUpCapture={onTouchUp} onPointerCancelCapture={onTouchUp}
             className={`overflow-auto ${canva ? "absolute inset-0 bg-[#e9eaee]" : "rounded-2xl border border-line bg-[#faf8f2] shadow-inner"} ${panning ? "cursor-grab active:cursor-grabbing" : calib ? "cursor-crosshair" : ""}`}
             style={canva ? undefined : { height: H * fit }}>
-            <div className="relative" style={{ width: lay.cw, height: lay.ch }}>
+            <div className="relative overflow-hidden" style={{ width: lay.cw, height: lay.ch }}>
               <div
                 ref={canvas}
                 onPointerDown={bgDown}
                 onPointerMove={move}
                 onPointerUp={up}
-                className={`absolute origin-top-left touch-none select-none ${canva ? "bg-white shadow-[0_4px_24px_rgba(17,17,17,.12)]" : ""}`}
+                className={`absolute origin-top-left touch-none select-none ${canva ? "shadow-[0_4px_24px_rgba(17,17,17,.12)]" : ""}`}
                 style={{
                   left: lay.offX, top: lay.offY,
                   width: W, height: H, transform: `scale(${scale})`,
+                  backgroundColor: CANVAS_THEMES[canvasTheme].bg,
                   backgroundImage: edit
-                    ? "linear-gradient(#ece8dc 1px,transparent 1px),linear-gradient(90deg,#ece8dc 1px,transparent 1px)"
-                    : "radial-gradient(#e5e0d0 1px, transparent 1px)",
+                    ? `linear-gradient(${CANVAS_THEMES[canvasTheme].grid} 1px,transparent 1px),linear-gradient(90deg,${CANVAS_THEMES[canvasTheme].grid} 1px,transparent 1px)`
+                    : `radial-gradient(${CANVAS_THEMES[canvasTheme].grid} 1px, transparent 1px)`,
                   backgroundSize: `${CANVAS.grid * 2}px ${CANVAS.grid * 2}px`,
                 }}
               >
@@ -1387,14 +1396,27 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
             ))}
             <button type="button" className="whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs text-muted hover:bg-panel2 cursor-pointer" onClick={() => start(async () => switchFloor(await addFloor(shopId)))}>+ ชั้น</button>
           </div>
-          <div className="ml-auto flex items-center gap-0.5 md:gap-1">
+          <div className="ml-auto flex items-center gap-1 md:gap-1.5">
+            <select
+              value={canvasTheme}
+              onChange={(e) => setCanvasTheme(e.target.value as CanvasTheme)}
+              title="เปลี่ยนธีมสีพื้นหลังผัง"
+              className="hidden lg:block rounded-lg border border-line bg-panel2 px-2 py-1.5 text-xs font-medium cursor-pointer"
+            >
+              {(Object.entries(CANVAS_THEMES) as [CanvasTheme, typeof CANVAS_THEMES[CanvasTheme]][]).map(([k, v]) => (
+                <option key={k} value={k}>🎨 พื้น: {v.label}</option>
+              ))}
+            </select>
             <button type="button" className="grid place-items-center size-9 rounded-lg hover:bg-panel2 disabled:opacity-30 cursor-pointer" title="เลิกทำ (Ctrl+Z)" disabled={!undoStack.current.length} onClick={() => historyStep("undo")}>↶</button>
             <button type="button" className="grid place-items-center size-9 rounded-lg hover:bg-panel2 disabled:opacity-30 cursor-pointer" title="ทำซ้ำ (Ctrl+Y)" disabled={!redoStack.current.length} onClick={() => historyStep("redo")}>↷</button>
-            <label className="hidden md:inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-ink2 hover:bg-panel2 cursor-pointer select-none" title="ล็อกโซนและถนนไม่ให้เผลอลากขยับ">
+            <label className="hidden xl:inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-ink2 hover:bg-panel2 cursor-pointer select-none" title="ล็อกโซนและถนนไม่ให้เผลอลากขยับ">
               <input type="checkbox" checked={lockBg} onChange={(e) => setLockBg(e.target.checked)} className="size-3.5 accent-ink" /> 🔒 ล็อกพื้นหลัง
             </label>
             <button type="button" className="hidden md:grid place-items-center size-9 rounded-lg hover:bg-panel2 cursor-pointer" title="คีย์ลัด (?)" onClick={() => setShowKeys(true)}>⌨️</button>
-            <button type="button" className="btn !py-2 !px-3 md:!px-4 ml-1" onClick={finishEdit}>✓<span className="hidden sm:inline"> เสร็จสิ้น</span></button>
+            <button type="button" className="btn !py-1.5 !px-3 text-xs sm:text-sm" onClick={() => setShowShare(true)}>
+              📤 <span className="hidden sm:inline">แชร์ / ดาวน์โหลดผัง</span>
+            </button>
+            <button type="button" className="btn-dark !py-1.5 !px-3 text-xs sm:text-sm" onClick={finishEdit}>✓<span className="hidden sm:inline"> เสร็จสิ้น</span></button>
           </div>
         </div>
 
@@ -1447,6 +1469,19 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
 
         </div>
         {showKeys && <ShortcutsModal onClose={() => setShowKeys(false)} />}
+        {showShare && floor && (
+          <ShareExportModal
+            shopId={shopId}
+            shopTitle={title ?? ""}
+            category={category}
+            unit={unit}
+            floor={floor}
+            assets={onFloor}
+            features={fOnFloor}
+            theme={canvasTheme}
+            onClose={() => setShowShare(false)}
+          />
+        )}
       </div>
     );
   }
@@ -1473,11 +1508,14 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-ghost !py-1.5 text-xs sm:text-sm !border-brand bg-brand/10 font-semibold" onClick={() => setShowShare(true)}>
+            📤 แชร์ / ดาวน์โหลดรูปผัง
+          </button>
           {editable && (
             <>
               {!edit ? (
                 editHref
-                  ? <Link href={editHref} className="btn">🎨 แก้ไข / ตกแต่งผังร้าน</Link>
+                  ? <Link href={editHref} className="btn">🎨 เปิดสตูดิโอแต่งผัง (Canva Mode)</Link>
                   : <button className="btn" onClick={() => setEdit(true)}>🎨 แก้ไข / ตกแต่งผังร้าน</button>
               ) : (
                 <>
@@ -1585,6 +1623,19 @@ export default function FloorPlan({ shopId, category, floors, assets, features, 
         {inspector}
       </div>
       {showKeys && <ShortcutsModal onClose={() => setShowKeys(false)} />}
+      {showShare && floor && (
+        <ShareExportModal
+          shopId={shopId}
+          shopTitle={title ?? ""}
+          category={category}
+          unit={unit}
+          floor={floor}
+          assets={onFloor}
+          features={fOnFloor}
+          theme={canvasTheme}
+          onClose={() => setShowShare(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1596,6 +1647,7 @@ function Panel({ shopId, a, allOnFloor, onSelectAsset, unit, editable, edit, can
   onLock: () => void;
 }) {
   const [st, act, pending] = useActionState(updateAsset.bind(null, shopId, a?.id ?? ""), undefined);
+  const [quickPending, startQuick] = useTransition();
 
   if (!a) {
     const vacantList = allOnFloor.filter((x) => x.listed && x.price > 0 && x.state === "VACANT");
@@ -1653,6 +1705,39 @@ function Panel({ shopId, a, allOnFloor, onSelectAsset, unit, editable, edit, can
           </span>
         )}
       </div>
+
+      {/* ปุ่มสลับสถานะ ว่าง ↔ ไม่ว่าง/จองแล้ว แบบ 1 คลิก (ไม่ต้องกรอกฟอร์มยาว) */}
+      {editable && (
+        <div className="rounded-xl border border-line bg-panel2/40 p-2.5 space-y-1.5">
+          <div className="text-[11px] font-semibold text-ink2">⚡ สลับสถานะบนผังทันใจ (1-Click Status)</div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              disabled={quickPending || a.state === "VACANT"}
+              onClick={() => startQuick(async () => { await quickSetAssetStatus(shopId, a.id, "VACANT"); })}
+              className={`rounded-lg py-1.5 px-2 text-xs font-semibold transition cursor-pointer border ${
+                a.state === "VACANT"
+                  ? "border-[#16a34a] bg-ok/15 text-ok ring-1 ring-[#16a34a]"
+                  : "border-line bg-white hover:bg-panel2 text-ink2"
+              }`}
+            >
+              🟢 ตั้งเป็น “ว่าง”
+            </button>
+            <button
+              type="button"
+              disabled={quickPending || a.state === "OCCUPIED"}
+              onClick={() => startQuick(async () => { await quickSetAssetStatus(shopId, a.id, "OCCUPIED"); })}
+              className={`rounded-lg py-1.5 px-2 text-xs font-semibold transition cursor-pointer border ${
+                a.state !== "VACANT"
+                  ? "border-[#b45309] bg-brand text-ink ring-1 ring-[#b45309]"
+                  : "border-line bg-white hover:bg-panel2 text-ink2"
+              }`}
+            >
+              🟡 ตั้งเป็น “มีผู้เช่า/เต็ม”
+            </button>
+          </div>
+        </div>
+      )}
 
       {a.note && <p className="text-xs text-ink2 bg-panel2/50 rounded-lg px-2.5 py-1.5">{a.note}</p>}
       <Photos shopId={shopId} assetId={a.id} photos={a.photos} editable={editable} />

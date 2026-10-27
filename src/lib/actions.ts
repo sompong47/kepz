@@ -1053,3 +1053,36 @@ export async function restorePlanVersion(shopId: string, versionId: string): Pro
   revalidatePath(`/seller/shops/${shopId}`, "layout");
   return { skipped };
 }
+
+/* ---------- สลับสถานะ ว่าง ↔ มีผู้เช่า/จองแล้ว แบบ 1-Click บนผัง (ไม่ต้องกรอกฟอร์มยาว) ---------- */
+export async function quickSetAssetStatus(shopId: string, assetId: string, target: "VACANT" | "OCCUPIED", label?: string) {
+  await ownShop(shopId);
+  const u = await requireUser();
+  const asset = await db.query.assets.findFirst({ where: and(eq(assets.id, assetId), eq(assets.shopId, shopId)), with: { leases: true } });
+  if (!asset) return;
+
+  if (target === "VACANT") {
+    const activeIds = asset.leases.filter((l) => l.status === "ACTIVE" || l.status === "PENDING").map((l) => l.id);
+    if (activeIds.length) {
+      await db.update(leases).set({ status: "ENDED" }).where(inArray(leases.id, activeIds));
+    }
+  } else {
+    const hasActive = asset.leases.some((l) => l.status === "ACTIVE" && +l.endDate >= Date.now());
+    if (!hasActive) {
+      const start = new Date();
+      const end = new Date(Date.now() + 365 * 86400000);
+      await db.insert(leases).values({
+        assetId: asset.id,
+        tenantId: u.id,
+        guestName: (label || "มีผู้เช่า / จองแล้ว").slice(0, 60),
+        status: "ACTIVE",
+        startDate: start,
+        endDate: end,
+        billing: "MONTH",
+      });
+    }
+  }
+  revalidatePath(`/seller/shops/${shopId}`, "layout");
+  revalidatePath(`/shops/${shopId}`);
+}
+
